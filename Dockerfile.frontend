@@ -9,8 +9,8 @@ COPY web/frontend/package*.json ./
 
 # Install dependencies
 # Note: We need dev dependencies (like react-scripts) to build the app
-# Try npm ci first (faster, requires exact lock file), fallback to npm install
-RUN npm ci || npm install
+# Use npm install for better compatibility (npm ci can fail if lock file is out of sync)
+RUN npm install
 
 # Copy source code
 COPY web/frontend/ ./
