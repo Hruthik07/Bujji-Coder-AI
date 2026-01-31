@@ -8,8 +8,9 @@ WORKDIR /app
 COPY web/frontend/package*.json ./
 
 # Install dependencies
-# Use npm install if package-lock.json doesn't exist, otherwise use npm ci
-RUN if [ -f package-lock.json ]; then npm ci; else npm install --only=production; fi
+# Note: We need dev dependencies (like react-scripts) to build the app
+# Try npm ci first (faster, requires exact lock file), fallback to npm install
+RUN npm ci || npm install
 
 # Copy source code
 COPY web/frontend/ ./
