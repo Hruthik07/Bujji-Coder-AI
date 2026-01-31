@@ -62,7 +62,7 @@ function Terminal({ workspacePath = '.' }) {
     }
 
     // Connect to WebSocket
-    const ws = new WebSocket(`ws://${window.location.hostname}:8001/ws/terminal`);
+    const ws = new WebSocket(`ws://${window.location.hostname}:8010/ws/terminal`);
     wsRef.current = ws;
 
     ws.onopen = () => {

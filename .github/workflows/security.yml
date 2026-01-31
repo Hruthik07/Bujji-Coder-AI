@@ -1,0 +1,110 @@
+name: Security
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run weekly on Monday at 00:00 UTC
+    - cron: '0 0 * * 1'
+
+jobs:
+  dependency-scan:
+    runs-on: ubuntu-latest
+    name: Dependency Vulnerability Scan
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: 'pip'
+
+    - name: Install safety
+      run: |
+        pip install safety
+
+    - name: Run safety check
+      run: |
+        safety check --file requirements.txt || true
+      continue-on-error: true
+
+    - name: Install pip-audit
+      run: |
+        pip install pip-audit
+
+    - name: Run pip-audit
+      run: |
+        pip-audit --requirement requirements.txt || true
+      continue-on-error: true
+
+  code-scan:
+    runs-on: ubuntu-latest
+    name: Code Security Scan
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install bandit
+      run: |
+        pip install bandit[toml]
+
+    - name: Run Bandit security scan
+      run: |
+        bandit -r . -f json -o bandit-report.json || true
+        bandit -r . -ll || true
+      continue-on-error: true
+
+    - name: Upload Bandit report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: bandit-report
+        path: bandit-report.json
+        retention-days: 30
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    name: Secret Scanning
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Run Gitleaks
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      continue-on-error: true
+
+  docker-scan:
+    runs-on: ubuntu-latest
+    name: Docker Image Security Scan
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build Docker image
+      run: |
+        docker build -t bujji-coder-ai:test -f Dockerfile .
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'bujji-coder-ai:test'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        severity: 'CRITICAL,HIGH'
+
+    - name: Upload Trivy results to GitHub Security
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'

@@ -38,6 +38,9 @@ try:
     from .rules_engine import RulesEngine
     from .git_integration import GitService
     from .validation_service import ValidationService, ValidationResult, ValidationIssue, ValidationSeverity
+    from .auth import AuthManager, get_auth_manager, get_current_user, User, UserCreate, UserLogin, TokenResponse
+    from .rate_limiter import RateLimiter, get_rate_limiter, rate_limit
+    from .security import sanitize_file_path, sanitize_input, validate_email, validate_username, validate_password_strength, get_cors_origins
     __all__ = ['FileOperations', 'CodebaseSearch', 'Terminal', 'ASTAnalyzer', 'RAGSystem', 
                'DiffEditor', 'DiffExtractor', 'IncrementalIndexer', 'CodeGraphBuilder',
                'ErrorParser', 'ErrorDebugger', 'MultiAgentSystem', 'Cache', 'Logger', 
@@ -48,7 +51,10 @@ try:
                'CodeScanner', 'BugDetector', 'Bug', 'AutoFixer', 'DebugMode',
                'CodeInstrumentation', 'HypothesisGenerator', 'Hypothesis', 'RuntimeDebugger',
                'InteractiveDebugMode', 'PerformanceMonitor', 'PerformanceMetric', 'IndexingStats', 'ResponseStats',
-               'RulesEngine', 'GitService', 'ValidationService', 'ValidationResult', 'ValidationIssue', 'ValidationSeverity']
+               'RulesEngine', 'GitService', 'ValidationService', 'ValidationResult', 'ValidationIssue', 'ValidationSeverity',
+               'AuthManager', 'get_auth_manager', 'get_current_user', 'User', 'UserCreate', 'UserLogin', 'TokenResponse',
+               'RateLimiter', 'get_rate_limiter', 'rate_limit', 'sanitize_file_path', 'sanitize_input', 'validate_email',
+               'validate_username', 'validate_password_strength', 'get_cors_origins']
 except ImportError:
     try:
         from .cache import Cache

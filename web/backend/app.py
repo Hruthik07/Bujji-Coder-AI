@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -22,6 +22,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from assistant import CodingAssistant
 from tools.code_completion import CodeCompletionEngine
 from tools.git_integration import GitService
+from tools.auth import get_auth_manager, get_current_user, User, UserCreate, UserLogin, TokenResponse, JWT_EXPIRATION_HOURS
+from tools.rate_limiter import get_rate_limiter, rate_limit
+from tools.security import get_cors_origins, sanitize_file_path, sanitize_input
 from config import Config
 
 # Global assistant instance
@@ -128,12 +131,18 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware
+# CORS middleware - use environment-based origins
+cors_origins = get_cors_origins()
+if not cors_origins and os.getenv("ENVIRONMENT", "development") == "production":
+    # Production must have explicit CORS origins
+    print("[WARN] CORS_ORIGINS not set in production! Defaulting to empty list.")
+    cors_origins = []
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify actual origins
+    allow_origins=cors_origins if cors_origins else ["*"],  # Fallback to * for development
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -211,6 +220,52 @@ class RulesSaveRequest(BaseModel):
     content: str
 
 
+# Rate limiting middleware
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """Apply rate limiting to all requests"""
+    # Skip rate limiting for health checks and auth endpoints
+    if request.url.path in ["/", "/api/health", "/api/auth/login", "/api/auth/register"]:
+        return await call_next(request)
+    
+    rate_limiter = get_rate_limiter()
+    
+    # Get user_id if authenticated
+    user_id = None
+    try:
+        # Try to get user from token
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+            auth_manager = get_auth_manager()
+            payload = auth_manager.verify_token(token)
+            user_id = payload.get("sub")
+    except Exception:
+        pass  # Not authenticated, use IP-based rate limiting
+    
+    is_allowed, rate_limit_info = await rate_limiter.check_rate_limit(request, user_id)
+    
+    if not is_allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded. Please try again later.",
+            headers={
+                "X-RateLimit-Limit": str(rate_limit_info["limit"]["minute"]),
+                "X-RateLimit-Remaining": "0",
+                "X-RateLimit-Reset": str(rate_limit_info["reset"]["minute"])
+            }
+        )
+    
+    response = await call_next(request)
+    
+    # Add rate limit headers
+    response.headers["X-RateLimit-Limit-Minute"] = str(rate_limit_info["limit"]["minute"])
+    response.headers["X-RateLimit-Remaining-Minute"] = str(rate_limit_info["remaining"]["minute"])
+    response.headers["X-RateLimit-Reset-Minute"] = str(rate_limit_info["reset"]["minute"])
+    
+    return response
+
+
 # REST API Endpoints
 
 @app.get("/")
@@ -262,6 +317,76 @@ async def get_health():
             "error": str(e),
             "timestamp": time.time()
         }
+
+
+# Authentication endpoints
+@app.post("/api/auth/register", response_model=TokenResponse)
+async def register(user_data: UserCreate):
+    """Register a new user"""
+    auth_manager = get_auth_manager()
+    try:
+        user = auth_manager.create_user(
+            username=user_data.username,
+            email=user_data.email,
+            password=user_data.password
+        )
+        access_token = auth_manager.create_access_token(user)
+        refresh_token = auth_manager.create_refresh_token(user)
+        return TokenResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_in=JWT_EXPIRATION_HOURS * 3600
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/auth/login", response_model=TokenResponse)
+async def login(credentials: UserLogin):
+    """Login and get access token"""
+    auth_manager = get_auth_manager()
+    user = auth_manager.authenticate_user(credentials.username, credentials.password)
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid username or password"
+        )
+    access_token = auth_manager.create_access_token(user)
+    refresh_token = auth_manager.create_refresh_token(user)
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=JWT_EXPIRATION_HOURS * 3600
+    )
+
+
+@app.post("/api/auth/refresh")
+async def refresh_token_endpoint(refresh_token: str):
+    """Refresh access token"""
+    auth_manager = get_auth_manager()
+    try:
+        new_access_token = auth_manager.refresh_access_token(refresh_token)
+        return {
+            "access_token": new_access_token,
+            "token_type": "bearer"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+
+@app.get("/api/auth/me")
+async def get_current_user_info(current_user: User = Depends(get_current_user)):
+    """Get current user information"""
+    return {
+        "id": current_user.id,
+        "username": current_user.username,
+        "email": current_user.email,
+        "role": current_user.role
+    }
 
 
 @app.get("/api/status")
@@ -1377,6 +1502,6 @@ async def websocket_terminal(websocket: WebSocket):
 if __name__ == "__main__":
     import uvicorn
     import os
-    # Use port from environment or default to 8001
-    port = int(os.getenv("PORT", 8001))
+    # Use port from environment or default to 8010
+    port = int(os.getenv("PORT", 8010))
     uvicorn.run(app, host="0.0.0.0", port=port)

@@ -1,0 +1,107 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  format-check:
+    runs-on: ubuntu-latest
+    name: Code Formatting Check
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: 'pip'
+
+    - name: Install formatters
+      run: |
+        pip install black isort
+
+    - name: Check code formatting with Black
+      run: |
+        black --check .
+
+    - name: Check import sorting with isort
+      run: |
+        isort --check-only .
+
+  lint:
+    runs-on: ubuntu-latest
+    name: Linting
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: 'pip'
+
+    - name: Install linters
+      run: |
+        pip install flake8 pylint
+
+    - name: Run flake8
+      run: |
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+      continue-on-error: true
+
+    - name: Run pylint
+      run: |
+        pylint --disable=all --enable=E,F tools/ web/backend/ || true
+      continue-on-error: true
+
+  type-check:
+    runs-on: ubuntu-latest
+    name: Type Checking
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: 'pip'
+
+    - name: Install mypy
+      run: |
+        pip install mypy
+
+    - name: Run mypy
+      run: |
+        mypy . --ignore-missing-imports || true
+      continue-on-error: true
+
+  frontend-lint:
+    runs-on: ubuntu-latest
+    name: Frontend Linting
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: web/frontend/package-lock.json
+
+    - name: Install dependencies
+      working-directory: web/frontend
+      run: npm ci
+
+    - name: Run ESLint
+      working-directory: web/frontend
+      run: |
+        npm run lint || true
+      continue-on-error: true

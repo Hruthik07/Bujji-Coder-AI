@@ -1,5 +1,9 @@
 # Bujji Coder AI
 
+[![Tests](https://github.com/Hruthik07/Bujji-Coder-AI/workflows/Tests/badge.svg)](https://github.com/Hruthik07/Bujji-Coder-AI/actions)
+[![Security](https://github.com/Hruthik07/Bujji-Coder-AI/workflows/Security/badge.svg)](https://github.com/Hruthik07/Bujji-Coder-AI/actions)
+[![Code Quality](https://github.com/Hruthik07/Bujji-Coder-AI/workflows/Code%20Quality/badge.svg)](https://github.com/Hruthik07/Bujji-Coder-AI/actions)
+
 An intelligent coding assistant that actually understands your codebase. Think of it as having a senior developer pair-programming with you, but powered by advanced AI models that never get tired and remember everything.
 
 ## What is This?

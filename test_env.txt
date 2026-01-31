@@ -1,0 +1,9 @@
+# Test Environment Variables for Deployment Testing
+# These will be loaded by docker-compose
+
+JWT_SECRET_KEY=RD_xrcDTdtFTSsIi9cFOQuEJ-hAw5OlR-ToUY0TDNX0
+ENVIRONMENT=development
+CORS_ORIGINS=http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001
+RATE_LIMIT_PER_MINUTE=60
+RATE_LIMIT_PER_HOUR=1000
+RATE_LIMIT_PER_DAY=10000

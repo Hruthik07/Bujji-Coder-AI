@@ -15,7 +15,7 @@ function ChatPanel({ onDiffGenerated, onFileRequest }) {
 
   useEffect(() => {
     // Connect to WebSocket
-    const websocket = new WebSocket(`ws://${window.location.hostname}:8001/ws/chat`);
+    const websocket = new WebSocket(`ws://${window.location.hostname}:8010/ws/chat`);
     
     websocket.onmessage = (event) => {
       const data = JSON.parse(event.data);

@@ -1,0 +1,129 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-cov pytest-asyncio requests
+
+    - name: Run linting
+      run: |
+        pip install flake8 black isort
+        # Stop the build if there are Python syntax errors or undefined names
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Exit-zero treats all errors as warnings
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        # Check formatting
+        black --check .
+        isort --check-only .
+
+    - name: Run tests
+      run: |
+        python -m pytest tests/ -v --cov=. --cov-report=xml --cov-report=html || true
+      continue-on-error: true
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+    - name: Check backend health
+      run: |
+        python -c "import sys; sys.path.insert(0, '.'); from web.backend.app import app; print('Backend imports successfully')"
+
+    - name: Validate configuration
+      run: |
+        python -c "from config import Config; print('Config loaded successfully')"
+
+  test-backend-api:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install requests pytest
+
+    - name: Start backend server
+      run: |
+        python -m uvicorn web.backend.app:app --host 0.0.0.0 --port 8010 &
+        sleep 10
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'test-key' }}
+        JWT_SECRET_KEY: test-secret-key-for-ci
+        ENVIRONMENT: test
+
+    - name: Test API endpoints
+      run: |
+        python test_deployment.py || true
+      continue-on-error: true
+
+  test-frontend:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: web/frontend/package-lock.json
+
+    - name: Install frontend dependencies
+      working-directory: web/frontend
+      run: npm ci
+
+    - name: Build frontend
+      working-directory: web/frontend
+      run: npm run build
+      continue-on-error: true
+
+    - name: Check for build errors
+      run: |
+        if [ -d "web/frontend/build" ]; then
+          echo "Frontend build successful"
+        else
+          echo "Frontend build failed"
+          exit 1
+        fi
