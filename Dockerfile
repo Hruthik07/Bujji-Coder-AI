@@ -21,7 +21,7 @@ FROM python:3.11-slim
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser && \
-    mkdir -p /app /app/data /app/.vector_db /app/.memory.db && \
+    mkdir -p /app /app/data /app/.vector_db && \
     chown -R appuser:appuser /app
 
 # Set working directory
