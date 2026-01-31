@@ -5,7 +5,7 @@
   "private": true,
   "dependencies": {
     "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "react-dom": "^19.2.4",
     "react-scripts": "5.0.1",
     "@monaco-editor/react": "^4.6.0",
     "axios": "^1.6.0",
