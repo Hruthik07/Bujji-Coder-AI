@@ -12,8 +12,14 @@ COPY web/frontend/package*.json ./
 # Use npm install for better compatibility (npm ci can fail if lock file is out of sync)
 RUN npm install
 
+# Ensure all binaries in node_modules/.bin have executable permissions
+RUN chmod +x ./node_modules/.bin/* || true
+
 # Copy source code
 COPY web/frontend/ ./
+
+# Ensure source files have correct permissions
+RUN chmod -R u+w . || true
 
 # Build the application
 RUN npm run build
