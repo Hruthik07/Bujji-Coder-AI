@@ -100,8 +100,16 @@ class DeepSeekProvider(LLMProvider):
             max_tokens=max_tokens
         )
         
+        # Validate response
+        if not response.choices or len(response.choices) == 0:
+            raise RuntimeError("Empty response from DeepSeek API")
+        
+        message_content = response.choices[0].message.content
+        if message_content is None:
+            raise RuntimeError("Response content is None from DeepSeek API")
+        
         return LLMResponse(
-            content=response.choices[0].message.content,
+            content=message_content,
             model=model,
             input_tokens=response.usage.prompt_tokens,
             output_tokens=response.usage.completion_tokens,
@@ -155,8 +163,16 @@ class AnthropicProvider(LLMProvider):
             max_tokens=max_tokens
         )
         
+        # Validate response
+        if not response.content or len(response.content) == 0:
+            raise RuntimeError("Empty response from Anthropic API")
+        
+        message_text = response.content[0].text
+        if message_text is None:
+            raise RuntimeError("Response content is None from Anthropic API")
+        
         return LLMResponse(
-            content=response.content[0].text,
+            content=message_text,
             model=model,
             input_tokens=response.usage.input_tokens,
             output_tokens=response.usage.output_tokens,

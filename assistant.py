@@ -255,10 +255,14 @@ Always be helpful, accurate, and follow best practices. Take immediate action on
         if self.rag_system and self.rag_system.is_indexed:
             try:
                 # Use error context to enhance query if available
-                query = error_context.split('\n')[0] if error_context else user_message
+                if error_context and error_context.strip():
+                    error_lines = error_context.split('\n')
+                    query = error_lines[0].strip() if error_lines and error_lines[0].strip() else user_message
+                else:
+                    query = user_message
                 rag_context = self.rag_system.get_context_for_query(query, use_hybrid=True)
             except Exception as e:
-                print(f"⚠️  RAG retrieval error: {e}")
+                print(f"[WARN] RAG retrieval error: {e}")
         
         # Classify task to determine which model to use (if hybrid enabled)
         # Determine which model/provider to use
@@ -330,6 +334,14 @@ Always be helpful, accurate, and follow best practices. Take immediate action on
                     model_name = Config.OPENAI_MODEL
                     provider_name = "openai"  # Default fallback
         
+        # Validate that we have both provider and model_name
+        if not provider:
+            raise RuntimeError("No LLM provider available. Please configure at least one API key.")
+        if not model_name:
+            # Fallback to a default model if somehow model_name is None
+            model_name = Config.OPENAI_MODEL
+            self.logger.warning("model_name was None, using default OpenAI model")
+        
         # Build base system prompt
         system_content = self.system_prompt
         if error_context:
@@ -388,6 +400,10 @@ Always be helpful, accurate, and follow best practices. Take immediate action on
                     cost=cost,
                     duration=duration
                 )
+            
+            # Validate response content
+            if not response or not hasattr(response, 'content') or response.content is None:
+                raise RuntimeError("LLM response is empty or invalid. Please try again.")
             
             assistant_message = response.content
             

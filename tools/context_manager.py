@@ -117,7 +117,7 @@ class ContextManager:
             return conversation_history
         
         # Need summarization
-        print(f"📝 Context size ({history_tokens} tokens) exceeds threshold ({threshold}). Summarizing...")
+        print(f"[INFO] Context size ({history_tokens} tokens) exceeds threshold ({threshold}). Summarizing...")
         
         # Summarize old messages
         summary_result = self.summarizer.summarize_messages(

@@ -219,20 +219,55 @@ class RAGSystem:
                     )
                     
                     batch_embeddings = [item.embedding for item in response.data]
-                    embeddings.extend(batch_embeddings)
+                    
+                    # Validate that embeddings match texts
+                    if len(batch_embeddings) != len(sub_batch_texts):
+                        print(f"[WARN] Embedding count ({len(batch_embeddings)}) doesn't match text count ({len(sub_batch_texts)}). Skipping batch.")
+                        continue
                     
                     # Map sub-batch texts back to original chunks
-                    # Find which chunks correspond to this sub-batch
-                    sub_batch_chunks = []
-                    for text in sub_batch_texts:
-                        # Find the chunk that produced this text
-                        for chunk_idx, chunk in enumerate(batch):
-                            if self._format_chunk_for_embedding(chunk) == text:
-                                sub_batch_chunks.append((chunk, i + chunk_idx))
-                                break
+                    # Build a mapping from formatted text to chunk before processing
+                    text_to_chunk_map = {}
+                    for chunk_idx, chunk in enumerate(batch):
+                        formatted_text = self._format_chunk_for_embedding(chunk)
+                        # Handle potential duplicates by using list
+                        if formatted_text not in text_to_chunk_map:
+                            text_to_chunk_map[formatted_text] = []
+                        text_to_chunk_map[formatted_text].append((chunk, i + chunk_idx))
                     
-                    # Add texts and metadata
-                    texts.extend(sub_batch_texts)
+                    # Map sub-batch texts to chunks (must match embedding order)
+                    sub_batch_chunks = []
+                    used_chunks = set()  # Track used chunks to handle duplicates
+                    for text_idx, text in enumerate(sub_batch_texts):
+                        if text in text_to_chunk_map:
+                            # Get first unused chunk for this text
+                            chunk_found = False
+                            for chunk, global_idx in text_to_chunk_map[text]:
+                                chunk_key = (id(chunk), global_idx)
+                                if chunk_key not in used_chunks:
+                                    sub_batch_chunks.append((chunk, global_idx))
+                                    used_chunks.add(chunk_key)
+                                    chunk_found = True
+                                    break
+                            if not chunk_found:
+                                # All chunks for this text are used, use first one
+                                if text_to_chunk_map[text]:
+                                    chunk, global_idx = text_to_chunk_map[text][0]
+                                    sub_batch_chunks.append((chunk, global_idx))
+                        else:
+                            # Text not found in map - this shouldn't happen, but handle gracefully
+                            print(f"[WARN] Text not found in chunk map at index {text_idx}. Skipping.")
+                            # Skip this embedding too to maintain alignment
+                            continue
+                    
+                    # Validate alignment before adding
+                    if len(sub_batch_chunks) != len(batch_embeddings):
+                        print(f"[WARN] Chunk count ({len(sub_batch_chunks)}) doesn't match embedding count ({len(batch_embeddings)}). Skipping batch.")
+                        continue
+                    
+                    # Add embeddings, texts and metadata (all aligned)
+                    embeddings.extend(batch_embeddings)
+                    texts.extend(sub_batch_texts[:len(sub_batch_chunks)])  # Only add texts that have chunks
                     for chunk, global_idx in sub_batch_chunks:
                         chunk_id = self._generate_chunk_id(chunk, global_idx)
                         ids.append(chunk_id)
@@ -265,6 +300,12 @@ class RAGSystem:
         
         # Add to vector store in batches if large
         if len(embeddings) > 0:
+            # Validate all arrays have the same length
+            if not (len(embeddings) == len(texts) == len(ids) == len(metadatas)):
+                error_msg = f"Length mismatch: embeddings={len(embeddings)}, texts={len(texts)}, ids={len(ids)}, metadatas={len(metadatas)}"
+                print(f"[ERROR] {error_msg}")
+                raise ValueError(error_msg)
+            
             try:
                 # ChromaDB can handle large batches, but split if very large
                 add_batch_size = 1000

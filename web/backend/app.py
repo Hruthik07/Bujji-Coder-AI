@@ -589,6 +589,21 @@ async def composer_edit(request: ComposerRequest):
                 provider = assistant.deepseek_provider
             elif provider_name == "anthropic" and assistant.anthropic_provider:
                 provider = assistant.anthropic_provider
+            # If provider is still None, fall back to available providers
+            if not provider:
+                if assistant.deepseek_provider:
+                    provider = assistant.deepseek_provider
+                    model_name = Config.DEEPSEEK_MODEL
+                elif assistant.anthropic_provider:
+                    provider = assistant.anthropic_provider
+                    model_name = Config.ANTHROPIC_MODEL
+                elif assistant.openai_provider:
+                    provider = assistant.openai_provider
+                    model_name = Config.OPENAI_MODEL
+        
+        # Validate provider is available
+        if not provider:
+            raise HTTPException(status_code=503, detail="No LLM provider available. Please configure at least one API key.")
         
         # Build system prompt for multi-file editing
         system_prompt = assistant.system_prompt + """
@@ -603,6 +618,11 @@ You are now in Composer mode for multi-file editing. When the user requests chan
         
         if rag_context:
             system_prompt += f"\n\n<codebase_context>\n{rag_context}\n</codebase_context>"
+        
+        # Validate model_name
+        if not model_name:
+            model_name = Config.OPENAI_MODEL
+            print(f"[WARN] model_name was None in composer, using default: {model_name}")
         
         # Use context manager
         session_id = getattr(assistant, '_session_id', None)
@@ -624,6 +644,10 @@ You are now in Composer mode for multi-file editing. When the user requests chan
             temperature=Config.OPENAI_TEMPERATURE,
             max_tokens=Config.MAX_TOKENS * 2  # More tokens for multi-file edits
         )
+        
+        # Validate response
+        if not response or not hasattr(response, 'content') or response.content is None:
+            raise HTTPException(status_code=500, detail="LLM response is empty or invalid")
         
         assistant_message = response.content
         
