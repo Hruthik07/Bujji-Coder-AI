@@ -8,6 +8,111 @@ Bujji Coder AI is a comprehensive development tool that combines the power of mu
 
 The assistant uses Retrieval-Augmented Generation (RAG) to understand your entire codebase context, making suggestions and changes that actually fit your project's architecture and coding style. Whether you're working on a small script or a large enterprise application, it adapts to your needs.
 
+## What Makes Bujji-Coder-AI Different?
+
+### Latest Features & Technologies
+
+#### 🧠 Advanced Memory Management System
+Unlike other AI coding assistants that lose context after a few messages, Bujji-Coder-AI implements a sophisticated memory system that:
+- **Persistent Memory Database**: Stores conversation summaries and key facts in SQLite, allowing the assistant to remember important decisions and context across sessions
+- **Progressive Summarization**: Automatically summarizes old messages when approaching token limits, preserving critical information while staying within model constraints
+- **Facts Extraction**: Extracts structured facts (files created, functions added, architectural decisions) and injects them into future conversations
+- **Cross-Session Memory**: Remembers context from previous sessions, so you don't have to re-explain your project structure
+
+This means the assistant maintains context even after hundreds of messages, something most competitors struggle with.
+
+#### 🔀 Intelligent Hybrid Model System
+While other tools lock you into a single AI model, Bujji-Coder-AI uses an intelligent routing system:
+- **Task-Based Routing**: Automatically selects the best model for each task
+  - **DeepSeek Coder** for code generation (fast, cost-effective, specialized for code)
+  - **Claude Sonnet 3.5** for complex reasoning, debugging, and architecture decisions (superior reasoning, larger context window)
+  - **OpenAI GPT** as a reliable fallback
+- **Cost Optimization**: Uses cheaper models for simple tasks, premium models only when needed
+- **Model-Specific Context Windows**: Manages different token limits per model (10K for DeepSeek, 150K for Claude) automatically
+
+This hybrid approach gives you the speed and cost-effectiveness of specialized models with the reasoning power of advanced models when you need it.
+
+#### 🎯 Multi-Agent Architecture
+The system uses a sophisticated multi-agent approach:
+- **Retrieval Agent**: Finds relevant code patterns and context from your codebase
+- **Planning Agent**: Breaks down complex tasks into actionable steps
+- **Validation Agent**: Verifies code changes before applying them
+
+This separation of concerns leads to more accurate results and better code quality compared to single-model approaches.
+
+#### 🔍 AST-Aware Code Understanding
+Most AI assistants treat code as plain text. Bujji-Coder-AI uses Abstract Syntax Tree (AST) parsing to:
+- Understand code structure, not just text
+- Track dependencies and relationships between functions and classes
+- Make refactoring suggestions that respect your code's architecture
+- Generate completions that match your code's style and patterns
+
+#### 🚀 Parallel Processing & Performance
+Built for speed with:
+- **Parallel File Indexing**: Uses ThreadPoolExecutor to index large codebases in seconds, not minutes
+- **Intelligent Caching**: LRU cache with TTL for embeddings, AST analysis, and frequently accessed data
+- **Batch Processing**: Optimized batch sizes for embedding generation to handle large codebases efficiently
+- **Performance Monitoring**: Real-time tracking of indexing time, response time, memory usage, and API costs
+
+#### 🛡️ Advanced Debugging System
+Goes beyond simple error detection with:
+- **Static Analysis**: AST-based syntax checking and pattern detection
+- **Runtime Debugging**: Safe code execution with instrumentation for hypothesis generation
+- **Auto-Fixing**: Automatically fixes common bugs using LLM-generated diffs
+- **Hypothesis Generation**: Generates multiple theories about bug causes with confidence scores
+- **Interactive Debugging**: Step-by-step debugging guidance similar to professional IDEs
+
+#### 📊 Real-Time Validation
+Before applying any code changes:
+- **Syntax Validation**: Checks Python syntax before applying diffs
+- **Linter Integration**: Runs linters (flake8) to catch style and quality issues
+- **Type Checking**: Validates code structure and types
+- **Pre-Apply Warnings**: Shows potential issues before you commit to changes
+
+### Why Choose Bujji-Coder-AI Over Other Solutions?
+
+| Feature | Bujji-Coder-AI | Other AI Assistants |
+|---------|----------------|---------------------|
+| **Memory Management** | ✅ Persistent database, cross-session memory | ❌ Limited to conversation window |
+| **Model Selection** | ✅ Hybrid system (DeepSeek + Claude + GPT) | ❌ Single model locked-in |
+| **Code Understanding** | ✅ AST-aware, understands structure | ⚠️ Mostly text-based |
+| **Context Window** | ✅ Up to 150K tokens (Claude) with smart management | ⚠️ Usually limited to 8K-32K |
+| **Multi-File Editing** | ✅ Composer with dependency analysis | ⚠️ Limited or manual |
+| **Debugging** | ✅ Static + runtime with auto-fix | ⚠️ Basic error detection |
+| **Validation** | ✅ Pre-apply syntax, linting, type checks | ⚠️ Post-apply only |
+| **Performance** | ✅ Parallel processing, intelligent caching | ⚠️ Sequential, slower |
+| **Cost Tracking** | ✅ Real-time API cost monitoring | ❌ Usually not available |
+| **Git Integration** | ✅ Full Git support with AI commits | ⚠️ Basic or external |
+| **Web Interface** | ✅ Modern React UI with Monaco Editor | ⚠️ CLI or basic UI |
+| **Rules Engine** | ✅ Project-specific `.cursorrules` support | ⚠️ Limited customization |
+
+### Cutting-Edge Technologies
+
+**Backend Stack:**
+- **FastAPI**: Modern, fast Python web framework with automatic API documentation
+- **ChromaDB**: Vector database optimized for code embeddings and semantic search
+- **AST Parsing**: Python's `ast` module for deep code structure analysis
+- **ThreadPoolExecutor**: Parallel processing for performance-critical operations
+- **WebSocket**: Real-time bidirectional communication for chat and terminal
+
+**Frontend Stack:**
+- **React**: Modern component-based UI framework
+- **Monaco Editor**: The same editor that powers VS Code, with full IntelliSense support
+- **xterm.js**: Terminal emulator for integrated command execution
+- **WebSocket Client**: Real-time updates without polling
+
+**AI/ML Technologies:**
+- **RAG (Retrieval-Augmented Generation)**: Vector embeddings for semantic code search
+- **Hybrid LLM Routing**: Intelligent task classification and model selection
+- **Token Management**: Advanced token counting and context window optimization
+- **Embedding Models**: OpenAI's text-embedding-3-small for cost-effective code indexing
+
+**Development Tools:**
+- **Diff-Based Editing**: Unified diff format for precise, reversible code changes
+- **GitPython**: Full Git integration for version control operations
+- **Rich**: Beautiful terminal output and progress indicators
+- **Pydantic**: Type-safe data validation for API requests
+
 ## Key Features
 
 ### Smart Code Understanding
