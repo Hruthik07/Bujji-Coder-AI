@@ -50,12 +50,13 @@ ENV/
 *.tmp
 *.bak
 
-# Node
+# Node (but keep package files for Docker build)
 node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+# Note: package.json and package-lock.json are needed for Docker build
 
 # Build outputs
 dist/
