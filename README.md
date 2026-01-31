@@ -1,217 +1,271 @@
-# Auto - AI Coding Assistant
+# Bujji Coder AI
 
-A powerful AI coding assistant with advanced features including RAG (Retrieval-Augmented Generation), multi-model support, code completion, debugging, and a modern web interface.
+An intelligent coding assistant that understands your codebase, helps you write better code, and automates tedious development tasks. Think of it as having a senior developer pair-programming with you, but powered by advanced AI models.
 
-## 🚀 Features
+## What is This?
 
-### Core Capabilities
-- **RAG System**: Vector-based codebase retrieval with AST-aware chunking
-- **Multi-Model Support**: Hybrid LLM approach (OpenAI, Anthropic Claude, DeepSeek)
-- **Code Completion**: Real-time inline autocomplete with context awareness
-- **Diff-Based Editing**: Precise code changes using unified diff format
-- **Debug Mode**: Comprehensive debugging with static analysis and runtime debugging
-- **Git Integration**: Full Git support with AI-powered commit messages
-- **Terminal Integration**: Built-in terminal for command execution
-- **Rules Engine**: Project-specific instructions via `.cursorrules` files
+Bujji Coder AI is a comprehensive development tool that combines the power of multiple AI models with deep codebase understanding. It's designed to help developers write code faster, catch bugs earlier, and maintain better code quality across projects of any size.
 
-### Web Interface
-- **Modern UI**: React-based web interface with Monaco Editor
-- **Real-time Chat**: WebSocket-powered chat with model selection
-- **File Explorer**: Visual file tree with Git status indicators
-- **Diff Viewer**: Side-by-side diff visualization with validation
-- **Performance Dashboard**: Real-time metrics and monitoring
-- **Composer**: Multi-file editing interface
+The assistant uses Retrieval-Augmented Generation (RAG) to understand your entire codebase context, making suggestions and changes that actually fit your project's architecture and coding style. Whether you're working on a small script or a large enterprise application, it adapts to your needs.
 
-## 📋 Requirements
+## Key Features
 
-- Python 3.8+
-- Node.js 16+ (for web interface)
-- OpenAI API key (required)
-- Anthropic API key (optional, for Claude)
-- DeepSeek API key (optional, for DeepSeek Coder)
+### Smart Code Understanding
+The assistant doesn't just read your code—it understands it. Using AST parsing and vector-based retrieval, it maintains context about your entire codebase. Ask it to refactor a function, and it knows what other parts of your code depend on it.
 
-## 🛠️ Installation
+### Multi-Model Intelligence
+Instead of being locked into a single AI model, Bujji Coder AI intelligently routes tasks to the best model for the job:
+- **DeepSeek Coder** for code generation and refactoring
+- **Claude Sonnet** for complex reasoning and architecture decisions
+- **OpenAI GPT** as a reliable fallback
 
-### 1. Clone the Repository
-```bash
-git clone <repository-url>
-cd Bujji_Coder_AI
-```
+This hybrid approach gives you the best of all worlds: fast, accurate code generation with deep reasoning when you need it.
 
-### 2. Install Python Dependencies
-```bash
-pip install -r requirements.txt
-```
+### Real-Time Code Completion
+Get intelligent autocomplete suggestions as you type. The suggestions combine:
+- AST analysis of your current file
+- Similar patterns from your codebase (via RAG)
+- Language-specific keywords and patterns
+- Multi-line completions that actually make sense
 
-### 3. Install Frontend Dependencies
-```bash
-cd web/frontend
-npm install
-cd ../..
-```
+### Intelligent Debugging
+The debug mode goes beyond simple error detection. It:
+- Scans your entire codebase for potential issues
+- Uses static analysis to catch bugs before runtime
+- Generates hypotheses about what might be wrong
+- Automatically fixes common issues
+- Provides step-by-step debugging guidance
 
-### 4. Configure Environment Variables
+### Git Integration
+Full Git support built right in. Stage files, create commits with AI-generated messages, manage branches, and view diffs—all without leaving the interface. The assistant even suggests commit messages based on your changes.
 
-Copy the example environment file and fill in your API keys:
+### Modern Web Interface
+A clean, responsive web UI built with React and Monaco Editor (the same editor that powers VS Code). Features include:
+- Real-time chat with your assistant
+- File explorer with Git status indicators
+- Side-by-side diff viewer
+- Integrated terminal
+- Performance monitoring dashboard
+- Multi-file editing with the Composer
 
-```bash
-cp .env.example .env
-```
+## Getting Started
 
-Then edit `.env` and add your API keys:
+### Prerequisites
 
-```env
-# Required
-OPENAI_API_KEY=your_openai_api_key_here
+You'll need:
+- **Python 3.8 or higher** - The backend is built on Python
+- **Node.js 16 or higher** - For the web interface (optional, but recommended)
+- **OpenAI API key** - Required for core functionality
+- **Anthropic API key** - Optional, but recommended for better reasoning capabilities
+- **DeepSeek API key** - Optional, but recommended for code generation tasks
 
-# Optional - for hybrid model support
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-DEEPSEEK_API_KEY=your_deepseek_api_key_here
+### Installation
 
-# Optional - workspace path
-WORKSPACE_PATH=.
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/Hruthik07/Bujji-Coder-AI.git
+   cd Bujji-Coder-AI
+   ```
 
-# Optional - server port
-PORT=8001
-```
+2. **Install Python dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-See `.env.example` for all available configuration options.
+3. **Install frontend dependencies (for web interface):**
+   ```bash
+   cd web/frontend
+   npm install
+   cd ../..
+   ```
 
-## 🚀 Quick Start
+4. **Set up environment variables:**
+   
+   Copy the example environment file:
+   ```bash
+   cp .env.example .env
+   ```
+   
+   Then edit `.env` and add your API keys:
+   ```env
+   OPENAI_API_KEY=your_key_here
+   ANTHROPIC_API_KEY=your_key_here  # Optional but recommended
+   DEEPSEEK_API_KEY=your_key_here    # Optional but recommended
+   ```
+   
+   See `.env.example` for all available configuration options.
 
-### Command Line Interface
+### Running the Assistant
 
+#### Command Line Interface
+
+For quick tasks and scripts:
 ```bash
 python main.py
 ```
 
-### Web Interface
+#### Web Interface (Recommended)
 
-1. **Start Backend Server:**
-```bash
-cd web/backend
-python app.py
-```
+The web interface provides the best experience with real-time features:
 
-2. **Start Frontend Server:**
-```bash
-cd web/frontend
-npm start
-```
+1. **Start the backend server:**
+   ```bash
+   cd web/backend
+   python app.py
+   ```
+   The server will start on `http://localhost:8001`
 
-3. **Open Browser:**
-Navigate to `http://localhost:3001` (or the port shown in terminal)
+2. **Start the frontend (in a new terminal):**
+   ```bash
+   cd web/frontend
+   npm start
+   ```
+   The frontend will open at `http://localhost:3001`
 
-## 📖 Usage
+3. **Open your browser** and navigate to `http://localhost:3001`
 
-### Interactive Chat
+## How to Use
 
-Start the assistant and interact via natural language:
+### Basic Usage
+
+The assistant works through natural language. Just tell it what you want:
 
 ```python
 from assistant import CodingAssistant
 
 assistant = CodingAssistant(workspace_path=".")
-response = assistant.process_message("Add error handling to my code")
+response = assistant.process_message("Add error handling to the login function")
 print(response)
 ```
 
-### Web Interface
+### Web Interface Workflow
 
-1. Open the web interface in your browser
-2. Use the chat panel to ask questions or request code changes
-3. Select files from the file tree to view/edit
-4. Use Composer for multi-file editing
-5. Access Git panel for version control
-6. Use Terminal for command execution
+1. **Chat with your assistant** - Ask questions, request code changes, or get explanations
+2. **Browse your codebase** - Use the file tree to navigate and open files
+3. **Edit files** - Make changes directly in the Monaco editor
+4. **Use Composer** - Edit multiple files in a single request
+5. **Review changes** - See diffs before applying them
+6. **Commit changes** - Use the Git panel to stage and commit with AI-generated messages
 
 ### Code Completion
 
-The assistant provides real-time code completion:
-- AST-based suggestions
-- RAG-powered context
-- Language keyword completion
-- Multi-source merging
+Just start typing. The assistant will suggest completions based on:
+- Your current file's context
+- Similar code patterns in your codebase
+- Language-specific best practices
 
-### Debug Mode
+Press Tab to accept suggestions.
 
-Automatically detect and fix bugs:
+### Debugging
 
+To debug your entire codebase:
 ```python
-# Debug entire codebase
 results = assistant.debug_codebase(auto_fix=True)
-
-# Debug specific file
-results = assistant.debug_file("path/to/file.py", auto_fix=True)
 ```
 
-## 🏗️ Project Structure
+Or debug a specific file:
+```python
+results = assistant.debug_file("src/auth.py", auto_fix=True)
+```
+
+The assistant will scan for bugs, suggest fixes, and optionally apply them automatically.
+
+### Project-Specific Rules
+
+Create a `.cursorrules` file in your project root to give the assistant context about your coding standards, architecture decisions, and preferences. The assistant will follow these rules when making suggestions and changes.
+
+## Project Structure
 
 ```
-Bujji_Coder_AI/
-├── assistant.py              # Main assistant class
-├── config.py                 # Configuration settings
+Bujji-Coder-AI/
+├── assistant.py              # Main assistant orchestrator
+├── config.py                 # Configuration management
 ├── main.py                   # CLI entry point
-├── cost_tracker.py           # API cost tracking
+├── cost_tracker.py           # API usage and cost tracking
 ├── requirements.txt          # Python dependencies
-├── tools/                    # Core tools and utilities
-│   ├── rag_system.py         # RAG implementation
+│
+├── tools/                    # Core functionality modules
+│   ├── rag_system.py         # Vector-based codebase retrieval
 │   ├── code_completion.py    # Autocomplete engine
 │   ├── debug_mode.py         # Debugging system
 │   ├── git_integration.py    # Git operations
-│   └── ...                   # Other tools
+│   ├── context_manager.py    # Memory and context management
+│   ├── multi_agent.py        # Multi-agent coordination
+│   └── ...                   # Additional tools
+│
 ├── web/                      # Web interface
-│   ├── backend/              # FastAPI backend
-│   │   ├── app.py            # API server
+│   ├── backend/              # FastAPI REST API
+│   │   ├── app.py            # Main API server
 │   │   └── requirements.txt  # Backend dependencies
-│   └── frontend/             # React frontend
-│       ├── src/              # Source code
+│   └── frontend/             # React application
+│       ├── src/              # React components
 │       └── package.json      # Frontend dependencies
+│
 └── docs/                     # Documentation
+    ├── HYBRID_MODEL_SETUP.md
+    ├── MEMORY_SYSTEM_SUMMARY.md
+    └── history/              # Test reports and analysis
 ```
 
-## 🔧 Configuration
+## Configuration
 
-Edit `config.py` to customize:
+Most configuration is done through environment variables (see `.env.example`). Key settings include:
 
-- Model selection and hybrid mode
-- Context window sizes
-- RAG settings
-- Performance monitoring
-- Memory management
+- **Model selection** - Choose which models to use and when
+- **Context window sizes** - Adjust based on your model choices
+- **RAG settings** - Control how the codebase is indexed and retrieved
+- **Performance tuning** - Cache settings, batch sizes, etc.
+- **Memory management** - How conversation history is handled
 
-## 📚 Documentation
+For advanced configuration, you can modify `config.py` directly.
 
-Additional documentation available in the `docs/` folder:
-- `HYBRID_MODEL_SETUP.md` - Multi-model configuration guide
-- `MEMORY_SYSTEM_SUMMARY.md` - Context memory management
-- `CURSOR_AI_GAP_ANALYSIS.md` - Feature comparison
-- `CURSOR_AI_IMPROVEMENT_PLAN.md` - Development roadmap
+## Documentation
 
-Historical test reports and performance analysis are available in `docs/history/`.
+We've documented the important aspects of the system:
 
-## 🤝 Contributing
+- **[Hybrid Model Setup](docs/HYBRID_MODEL_SETUP.md)** - How to configure and use multiple AI models
+- **[Memory System](docs/MEMORY_SYSTEM_SUMMARY.md)** - Understanding context management and memory
+- **[Gap Analysis](docs/CURSOR_AI_GAP_ANALYSIS.md)** - Feature comparison with similar tools
+- **[Improvement Plan](docs/CURSOR_AI_IMPROVEMENT_PLAN.md)** - Development roadmap
 
-Contributions are welcome! Please ensure:
-- Code follows PEP 8 style guidelines
-- All tests pass
-- Documentation is updated
+Historical test reports and performance analysis are archived in `docs/history/`.
 
-## 📝 License
+## Contributing
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+Contributions are welcome! This project is actively developed, and we appreciate any help.
 
-## 🙏 Acknowledgments
+When contributing:
+- Follow PEP 8 style guidelines for Python code
+- Ensure all tests pass
+- Update documentation for new features
+- Write clear commit messages
 
-Built with:
-- OpenAI API
-- Anthropic Claude API
-- DeepSeek API
-- FastAPI
-- React
-- Monaco Editor
-- ChromaDB
+Feel free to open issues for bugs, feature requests, or questions.
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+## Built With
+
+This project wouldn't be possible without these amazing tools and services:
+
+- **OpenAI** - GPT models and embeddings
+- **Anthropic** - Claude models for advanced reasoning
+- **DeepSeek** - Specialized code generation models
+- **FastAPI** - Modern Python web framework
+- **React** - Frontend framework
+- **Monaco Editor** - Code editor component
+- **ChromaDB** - Vector database for RAG
+
+## Status
+
+This project is production-ready and actively maintained. All core features are implemented and tested. The system has been used successfully on projects ranging from small scripts to large codebases.
 
 ---
 
-**Status**: Production Ready ✅
+**Questions?** Open an issue or check the documentation in the `docs/` folder.
+
+**Found a bug?** Please report it with as much detail as possible so we can fix it quickly.
+
+**Have a feature idea?** We'd love to hear it! Open an issue and let's discuss.
