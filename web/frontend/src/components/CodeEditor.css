@@ -1,0 +1,56 @@
+.code-editor-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #1e1e1e;
+}
+
+.editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 15px;
+  background: #252526;
+  border-bottom: 1px solid #3e3e42;
+}
+
+.editor-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.file-icon {
+  font-size: 16px;
+}
+
+.file-name {
+  color: #d4d4d4;
+  font-weight: 500;
+}
+
+.no-file {
+  color: #858585;
+  font-style: italic;
+}
+
+.save-button {
+  padding: 4px 12px;
+  background: #007acc;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.2s;
+}
+
+.save-button:hover {
+  background: #005a9e;
+}
+
+.editor-wrapper {
+  flex: 1;
+  min-height: 0;
+}

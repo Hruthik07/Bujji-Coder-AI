@@ -1,0 +1,18 @@
+{
+  "tests_passed": 10,
+  "tests_failed": 0,
+  "errors": [],
+  "performance": {
+    "health_check": 2.0263254642486572,
+    "status_endpoint": 2.0416483879089355,
+    "file_listing": 2.035771608352661,
+    "chat_endpoint": 4.414768218994141,
+    "validation_endpoint": 2.0302786827087402,
+    "stats_endpoint": 2.0631721019744873,
+    "performance_endpoint": 2.044248342514038,
+    "git_status": 2.0270192623138428,
+    "rules_endpoint": 2.0318875312805176,
+    "rag_indexing_trigger": 2.0750296115875244
+  },
+  "timestamp": "2026-01-29T19:56:07.196314"
+}

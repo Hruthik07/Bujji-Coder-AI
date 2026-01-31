@@ -1,0 +1,33 @@
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 6px 15px;
+  background: #007acc;
+  color: white;
+  font-size: 12px;
+  border-top: 1px solid #005a9e;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-label {
+  font-weight: 500;
+  opacity: 0.9;
+}
+
+.status-value {
+  font-weight: 600;
+}
+
+.status-value.active {
+  color: #4ec9b0;
+}
+
+.status-value.inactive {
+  color: #f48771;
+}
