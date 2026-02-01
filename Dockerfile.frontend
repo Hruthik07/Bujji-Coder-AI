@@ -2,7 +2,6 @@
 FROM node:18-alpine as builder
 
 # Install build dependencies required for native modules
-# Alpine Linux is minimal and needs these for some npm packages
 RUN apk add --no-cache python3 make g++ git libc6-compat
 
 # Set working directory
@@ -11,25 +10,20 @@ WORKDIR /app
 # Copy package files first for better caching
 COPY web/frontend/package*.json ./
 
-# Clean npm cache and install dependencies
-# Use npm ci for faster, reliable, reproducible builds
-RUN npm cache clean --force && \
-    if [ -f package-lock.json ]; then \
-        npm ci --no-audit --no-fund; \
-    else \
-        npm install --no-audit --no-fund; \
-    fi
+# Install dependencies
+# Simplified approach: just use npm install (more forgiving than npm ci)
+# Remove --no-audit and --no-fund to see if they cause issues
+RUN npm install
 
 # Verify react-scripts is installed
 RUN test -f node_modules/.bin/react-scripts && \
-    echo "✓ react-scripts installed" || \
+    echo "✓ react-scripts installed successfully" || \
     (echo "✗ react-scripts NOT found" && ls -la node_modules/.bin/ | head -10 && exit 1)
 
 # Copy source code
 COPY web/frontend/ ./
 
-# Build the application
-# Use explicit path to react-scripts to avoid PATH issues
+# Build the application using explicit path to react-scripts
 RUN ./node_modules/.bin/react-scripts build
 
 # Production stage with Nginx
