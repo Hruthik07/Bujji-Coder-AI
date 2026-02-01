@@ -1,37 +1,36 @@
 # Multi-stage build for Bujji-Coder-AI Frontend
 FROM node:18-alpine as builder
 
+# Install build dependencies required for native modules
+# Alpine Linux is minimal and needs these for some npm packages
+RUN apk add --no-cache python3 make g++ git libc6-compat
+
 # Set working directory
 WORKDIR /app
 
 # Copy package files first for better caching
 COPY web/frontend/package*.json ./
 
-# Install dependencies with verbose output for debugging
-# Use --legacy-peer-deps to handle peer dependency issues
-RUN npm install --legacy-peer-deps
+# Clean npm cache and install dependencies
+# Use npm ci for faster, reliable, reproducible builds
+RUN npm cache clean --force && \
+    if [ -f package-lock.json ]; then \
+        npm ci --no-audit --no-fund; \
+    else \
+        npm install --no-audit --no-fund; \
+    fi
 
-# Verify react-scripts is installed and executable
-RUN ls -la node_modules/.bin/react-scripts || echo "react-scripts not found"
-RUN which react-scripts || echo "react-scripts not in PATH"
+# Verify react-scripts is installed
+RUN test -f node_modules/.bin/react-scripts && \
+    echo "✓ react-scripts installed" || \
+    (echo "✗ react-scripts NOT found" && ls -la node_modules/.bin/ | head -10 && exit 1)
 
 # Copy source code
 COPY web/frontend/ ./
 
-# Set proper permissions for the entire app directory
-RUN chown -R node:node /app && \
-    chmod -R 755 /app && \
-    chmod +x node_modules/.bin/* 2>/dev/null || true
-
-# Switch to node user (non-root)
-USER node
-
-# Verify npm and node are accessible
-RUN npm --version && node --version
-
 # Build the application
-# Use npx to ensure we're using the local react-scripts
-RUN npx react-scripts build || npm run build
+# Use explicit path to react-scripts to avoid PATH issues
+RUN ./node_modules/.bin/react-scripts build
 
 # Production stage with Nginx
 FROM nginx:alpine
