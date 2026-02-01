@@ -11,20 +11,26 @@ WORKDIR /app
 COPY web/frontend/package*.json ./
 
 # Install dependencies
-# Simplified approach: just use npm install (more forgiving than npm ci)
-# Remove --no-audit and --no-fund to see if they cause issues
 RUN npm install
 
-# Verify react-scripts is installed
+# Verify react-scripts is installed and make it executable
 RUN test -f node_modules/.bin/react-scripts && \
-    echo "✓ react-scripts installed successfully" || \
+    chmod +x node_modules/.bin/react-scripts && \
+    chmod +x node_modules/.bin/* && \
+    echo "✓ react-scripts installed and made executable" || \
     (echo "✗ react-scripts NOT found" && ls -la node_modules/.bin/ | head -10 && exit 1)
 
 # Copy source code
 COPY web/frontend/ ./
 
-# Build the application using explicit path to react-scripts
-RUN ./node_modules/.bin/react-scripts build
+# Build the application
+# Try multiple methods to ensure it works
+# Method 1: Use npm run build (handles PATH automatically)
+RUN npm run build || \
+    # Method 2: Use node to execute the script directly
+    node node_modules/react-scripts/bin/react-scripts.js build || \
+    # Method 3: Use explicit path with sh wrapper
+    sh -c './node_modules/.bin/react-scripts build'
 
 # Production stage with Nginx
 FROM nginx:alpine
