@@ -1,0 +1,25 @@
+[tool.black]
+line-length = 88
+target-version = ['py39', 'py310', 'py311']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | venv
+  | node_modules
+  | \.vector_db
+  | \.memory\.db
+  | \.auth\.db
+  | build
+  | dist
+  | __pycache__
+  | \.pytest_cache
+  | \.mypy_cache
+  | web/frontend
+)/
+'''
+
+[tool.isort]
+profile = "black"
+skip_glob = ["node_modules/**", "web/frontend/**", ".venv/**", "venv/**"]
