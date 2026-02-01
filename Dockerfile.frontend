@@ -4,25 +4,34 @@ FROM node:18-alpine as builder
 # Set working directory
 WORKDIR /app
 
-# Copy package files
+# Copy package files first for better caching
 COPY web/frontend/package*.json ./
 
-# Install dependencies
-# Note: We need dev dependencies (like react-scripts) to build the app
-# Use npm install for better compatibility (npm ci can fail if lock file is out of sync)
-RUN npm install
+# Install dependencies with verbose output for debugging
+# Use --legacy-peer-deps to handle peer dependency issues
+RUN npm install --legacy-peer-deps
 
-# Ensure all binaries in node_modules/.bin have executable permissions
-RUN chmod +x ./node_modules/.bin/* || true
+# Verify react-scripts is installed and executable
+RUN ls -la node_modules/.bin/react-scripts || echo "react-scripts not found"
+RUN which react-scripts || echo "react-scripts not in PATH"
 
 # Copy source code
 COPY web/frontend/ ./
 
-# Ensure source files have correct permissions
-RUN chmod -R u+w . || true
+# Set proper permissions for the entire app directory
+RUN chown -R node:node /app && \
+    chmod -R 755 /app && \
+    chmod +x node_modules/.bin/* 2>/dev/null || true
+
+# Switch to node user (non-root)
+USER node
+
+# Verify npm and node are accessible
+RUN npm --version && node --version
 
 # Build the application
-RUN npm run build
+# Use npx to ensure we're using the local react-scripts
+RUN npx react-scripts build || npm run build
 
 # Production stage with Nginx
 FROM nginx:alpine
