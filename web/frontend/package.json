@@ -8,7 +8,7 @@
     "react-dom": "^18.2.0",
     "react-scripts": "5.0.1",
     "@monaco-editor/react": "^4.6.0",
-    "axios": "^1.6.0",
+    "axios": "^1.13.5",
     "socket.io-client": "^4.5.4",
     "react-tree-view": "^0.1.0",
     "diff-match-patch": "^1.0.5",
