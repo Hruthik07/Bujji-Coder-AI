@@ -14,23 +14,64 @@ function ChatPanel({ onDiffGenerated, onFileRequest }) {
   const [selectedModel, setSelectedModel] = useState('auto');
 
   useEffect(() => {
-    // Connect to WebSocket
-    const websocket = new WebSocket(`ws://${window.location.hostname}:8010/ws/chat`);
+    // Connect to WebSocket — attach token if available (for auth-aware rate limiting)
+    const token = localStorage.getItem('access_token');
+    const wsBase = `ws://${window.location.hostname}:8010/ws/chat`;
+    const wsUrl = token ? `${wsBase}?token=${encodeURIComponent(token)}` : wsBase;
+    const websocket = new WebSocket(wsUrl);
     
+    // Streaming token accumulator — holds the in-progress assistant message id
+    let streamingMsgId = null;
+
     websocket.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      
+
       if (data.type === 'typing') {
         setIsTyping(data.status);
+      } else if (data.type === 'token') {
+        // Progressive token streaming — append to in-progress message
+        const token = data.token || '';
+        if (streamingMsgId === null) {
+          // Create a new streaming message placeholder
+          const id = Date.now();
+          streamingMsgId = id;
+          setIsTyping(false);
+          setMessages(prev => [...prev, {
+            id,
+            role: 'assistant',
+            content: token,
+            timestamp: new Date(),
+            model: 'streaming',
+            streaming: true,
+          }]);
+        } else {
+          // Append token to the existing streaming message
+          setMessages(prev => prev.map(msg =>
+            msg.id === streamingMsgId
+              ? { ...msg, content: msg.content + token }
+              : msg
+          ));
+        }
       } else if (data.type === 'message') {
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: data.response,
-          timestamp: new Date(),
-          model: data.model || 'auto'
-        }]);
+        // Final message — replace streaming placeholder with complete response
+        if (streamingMsgId !== null) {
+          setMessages(prev => prev.map(msg =>
+            msg.id === streamingMsgId
+              ? { ...msg, content: data.response, model: data.model || 'auto', streaming: false }
+              : msg
+          ));
+          streamingMsgId = null;
+        } else {
+          // No streaming was active (fallback)
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: data.response,
+            timestamp: new Date(),
+            model: data.model || 'auto'
+          }]);
+        }
         setIsTyping(false);
-        
+
         // Check if response contains diff
         if (data.response && data.response.includes('```diff')) {
           const diffMatch = data.response.match(/```diff\n([\s\S]*?)```/);
@@ -39,6 +80,7 @@ function ChatPanel({ onDiffGenerated, onFileRequest }) {
           }
         }
       } else if (data.type === 'error') {
+        streamingMsgId = null;
         setMessages(prev => [...prev, {
           role: 'error',
           content: data.message,

@@ -1,10 +1,10 @@
 """
 Main AI Coding Assistant - Core class that orchestrates all operations
 """
+import asyncio
 import json
 import time
-from typing import Dict, List, Optional, Any
-from openai import OpenAI
+from typing import AsyncGenerator, Dict, List, Optional, Any
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.syntax import Syntax
@@ -69,9 +69,6 @@ class CodingAssistant:
             summarization_threshold=Config.CONTEXT_SUMMARIZATION_THRESHOLD,
             preserve_recent=Config.PRESERVE_RECENT_MESSAGES
         )
-        
-        # Keep OpenAI client for backward compatibility (RAG embeddings)
-        self.client = OpenAI(api_key=api_key or Config.OPENAI_API_KEY)
         
         # Initialize tools
         self.file_ops = FileOperations(workspace_path)
@@ -138,23 +135,12 @@ class CodingAssistant:
             print(f"⚠️  Debug mode initialization failed: {e}")
             self.debug_mode = None
         
-                # Rules engine for .cursorrules support
-        try:
-            from tools.rules_engine import RulesEngine
-            self.rules_engine = RulesEngine(workspace_path=workspace_path)
-            self.rules_engine.load_rules()
-            if self.rules_engine.rules_loaded:
-                print(f"✓ Rules loaded from .cursorrules")
-        except Exception as e:
-            print(f"⚠️  Rules engine initialization failed: {e}")
-            self.rules_engine = None
-        
-        # System prompt with similar terminology (rules will be injected)
+        # System prompt with similar terminology
         self.system_prompt = self._get_system_prompt()
     
     def _get_system_prompt(self) -> str:
         """Get the system prompt with similar terminology and instructions"""
-        base_prompt = """You are Auto, an agentic AI coding assistant powered by advanced language models. You operate as a pair programming partner to help solve coding tasks.
+        return """You are Auto, an agentic AI coding assistant powered by advanced language models. You operate as a pair programming partner to help solve coding tasks.
 
 Your main goal is to follow the USER's instructions at each message.
 
@@ -223,22 +209,17 @@ For NEW files that don't exist yet, use this format:
 ```
 
 Always be helpful, accurate, and follow best practices. Take immediate action on user requests."""
-        # Inject rules if available
-        if hasattr(self, 'rules_engine') and self.rules_engine:
-            return self.rules_engine.inject_into_prompt(base_prompt)
-        
-        return base_prompt
     
     def process_message(self, user_message: str, conversation_history: Optional[List[Dict]] = None, model_override: Optional[str] = None) -> str:
         """
         Process a user message and generate a response with tool calls.
         Uses RAG to retrieve relevant code context.
-        
+
         Args:
             user_message: The user's message
             conversation_history: Optional conversation history
-            model_override: Optional model ID to override automatic selection ('openai', 'deepseek', 'anthropic', or None for auto)
-            
+            model_override: Optional model name to force a specific provider/model
+
         Returns:
             Assistant's response
         """
@@ -255,93 +236,72 @@ Always be helpful, accurate, and follow best practices. Take immediate action on
         if self.rag_system and self.rag_system.is_indexed:
             try:
                 # Use error context to enhance query if available
-                if error_context and error_context.strip():
-                    error_lines = error_context.split('\n')
-                    query = error_lines[0].strip() if error_lines and error_lines[0].strip() else user_message
-                else:
-                    query = user_message
+                query = error_context.split('\n')[0] if error_context else user_message
                 rag_context = self.rag_system.get_context_for_query(query, use_hybrid=True)
             except Exception as e:
-                print(f"[WARN] RAG retrieval error: {e}")
+                print(f"⚠️  RAG retrieval error: {e}")
         
         # Classify task to determine which model to use (if hybrid enabled)
-        # Determine which model/provider to use
-        provider_name = None
-        model_name = None
-        provider = None
-        
-        # If model_override is provided, use it (skip task classification)
-        if model_override and model_override != 'auto':
-            if model_override == "deepseek" and self.deepseek_provider:
+        provider_name = None  # Initialize to avoid undefined variable
+        if Config.USE_HYBRID_MODELS:
+            task_info = self.task_classifier.classify(user_message, conversation_history)
+            provider_name = task_info["provider"]
+            model_name = task_info["model"]
+            
+            # Get appropriate provider
+            if provider_name == "deepseek" and self.deepseek_provider:
+                provider = self.deepseek_provider
+            elif provider_name == "anthropic" and self.anthropic_provider:
+                provider = self.anthropic_provider
+            else:
+                # Fallback to available provider
+                if self.deepseek_provider:
+                    provider = self.deepseek_provider
+                    model_name = Config.DEEPSEEK_MODEL
+                    provider_name = "deepseek"  # Set for logging
+                elif self.anthropic_provider:
+                    provider = self.anthropic_provider
+                    model_name = Config.ANTHROPIC_MODEL
+                    provider_name = "anthropic"  # Set for logging
+                elif self.openai_provider:
+                    provider = self.openai_provider
+                    model_name = Config.OPENAI_MODEL
+                    provider_name = "openai"  # Set for logging
+                else:
+                    raise RuntimeError("No LLM provider available. Please configure at least one API key.")
+        else:
+            # Use default provider
+            if Config.DEFAULT_PROVIDER == "deepseek" and self.deepseek_provider:
                 provider = self.deepseek_provider
                 model_name = Config.DEEPSEEK_MODEL
                 provider_name = "deepseek"
-            elif model_override == "anthropic" and self.anthropic_provider:
+            elif Config.DEFAULT_PROVIDER == "anthropic" and self.anthropic_provider:
                 provider = self.anthropic_provider
                 model_name = Config.ANTHROPIC_MODEL
                 provider_name = "anthropic"
-            elif model_override == "openai" and self.openai_provider:
-                provider = self.openai_provider
+            else:
+                provider = self.openai_provider or self.deepseek_provider or self.anthropic_provider
+                if not provider:
+                    raise RuntimeError("No LLM provider available. Please configure at least one API key.")
                 model_name = Config.OPENAI_MODEL
+                provider_name = "openai"  # Default fallback
+        
+        # Honor explicit model_override from caller (e.g. WebSocket client selected a model)
+        if model_override:
+            model_override_lower = model_override.lower()
+            if "deepseek" in model_override_lower and self.deepseek_provider:
+                provider = self.deepseek_provider
+                model_name = model_override
+                provider_name = "deepseek"
+            elif any(x in model_override_lower for x in ("claude", "anthropic")) and self.anthropic_provider:
+                provider = self.anthropic_provider
+                model_name = model_override
+                provider_name = "anthropic"
+            elif self.openai_provider:
+                provider = self.openai_provider
+                model_name = model_override
                 provider_name = "openai"
-            else:
-                # Override model not available, fall back to automatic selection
-                self.logger.warning(f"Requested model '{model_override}' not available, falling back to automatic selection")
-                model_override = None  # Fall through to automatic selection
-        
-        # Automatic model selection (if no override or override failed)
-        if not provider:
-            if Config.USE_HYBRID_MODELS:
-                task_info = self.task_classifier.classify(user_message, conversation_history)
-                provider_name = task_info["provider"]
-                model_name = task_info["model"]
-                
-                # Get appropriate provider
-                if provider_name == "deepseek" and self.deepseek_provider:
-                    provider = self.deepseek_provider
-                elif provider_name == "anthropic" and self.anthropic_provider:
-                    provider = self.anthropic_provider
-                else:
-                    # Fallback to available provider
-                    if self.deepseek_provider:
-                        provider = self.deepseek_provider
-                        model_name = Config.DEEPSEEK_MODEL
-                        provider_name = "deepseek"  # Set for logging
-                    elif self.anthropic_provider:
-                        provider = self.anthropic_provider
-                        model_name = Config.ANTHROPIC_MODEL
-                        provider_name = "anthropic"  # Set for logging
-                    elif self.openai_provider:
-                        provider = self.openai_provider
-                        model_name = Config.OPENAI_MODEL
-                        provider_name = "openai"  # Set for logging
-                    else:
-                        raise RuntimeError("No LLM provider available. Please configure at least one API key.")
-            else:
-                # Use default provider
-                if Config.DEFAULT_PROVIDER == "deepseek" and self.deepseek_provider:
-                    provider = self.deepseek_provider
-                    model_name = Config.DEEPSEEK_MODEL
-                    provider_name = "deepseek"
-                elif Config.DEFAULT_PROVIDER == "anthropic" and self.anthropic_provider:
-                    provider = self.anthropic_provider
-                    model_name = Config.ANTHROPIC_MODEL
-                    provider_name = "anthropic"
-                else:
-                    provider = self.openai_provider or self.deepseek_provider or self.anthropic_provider
-                    if not provider:
-                        raise RuntimeError("No LLM provider available. Please configure at least one API key.")
-                    model_name = Config.OPENAI_MODEL
-                    provider_name = "openai"  # Default fallback
-        
-        # Validate that we have both provider and model_name
-        if not provider:
-            raise RuntimeError("No LLM provider available. Please configure at least one API key.")
-        if not model_name:
-            # Fallback to a default model if somehow model_name is None
-            model_name = Config.OPENAI_MODEL
-            self.logger.warning("model_name was None, using default OpenAI model")
-        
+
         # Build base system prompt
         system_content = self.system_prompt
         if error_context:
@@ -401,10 +361,6 @@ Always be helpful, accurate, and follow best practices. Take immediate action on
                     duration=duration
                 )
             
-            # Validate response content
-            if not response or not hasattr(response, 'content') or response.content is None:
-                raise RuntimeError("LLM response is empty or invalid. Please try again.")
-            
             assistant_message = response.content
             
             # Update memory if session_id available
@@ -460,6 +416,170 @@ Always be helpful, accurate, and follow best practices. Take immediate action on
             self.logger.exception("Error processing message")
             return f"I encountered an error: {str(e)}"
     
+    async def process_message_stream(
+        self,
+        user_message: str,
+        conversation_history: Optional[List[Dict]] = None,
+        model_override: Optional[str] = None,
+    ):
+        """
+        Streaming version of process_message.
+        Yields string token chunks as they arrive from the LLM for real-time display.
+        Performs the same RAG, classification, and post-processing pipeline as
+        process_message(), but returns tokens progressively.
+
+        After all tokens are yielded, post-processing (diff application, tool calls,
+        memory update) runs as a side effect.
+
+        Args:
+            user_message: The user's message
+            conversation_history: Optional conversation history
+            model_override: Optional model name to force a specific provider/model
+
+        Yields:
+            str: Token chunks from the LLM
+        """
+        # --- Same pipeline setup as process_message() ---
+        error_context = ""
+        if self.error_parser.is_python_error(user_message) and self.error_debugger:
+            try:
+                error_context = self.error_debugger.get_fix_context(user_message)
+            except Exception:
+                pass
+
+        rag_context = ""
+        if self.rag_system and self.rag_system.is_indexed:
+            try:
+                query = error_context.split('\n')[0] if error_context else user_message
+                rag_context = self.rag_system.get_context_for_query(query, use_hybrid=True)
+            except Exception:
+                pass
+
+        provider_name = None
+        if Config.USE_HYBRID_MODELS:
+            task_info = self.task_classifier.classify(user_message, conversation_history)
+            provider_name = task_info["provider"]
+            model_name = task_info["model"]
+            if provider_name == "deepseek" and self.deepseek_provider:
+                provider = self.deepseek_provider
+            elif provider_name == "anthropic" and self.anthropic_provider:
+                provider = self.anthropic_provider
+            else:
+                if self.deepseek_provider:
+                    provider = self.deepseek_provider
+                    model_name = Config.DEEPSEEK_MODEL
+                    provider_name = "deepseek"
+                elif self.anthropic_provider:
+                    provider = self.anthropic_provider
+                    model_name = Config.ANTHROPIC_MODEL
+                    provider_name = "anthropic"
+                elif self.openai_provider:
+                    provider = self.openai_provider
+                    model_name = Config.OPENAI_MODEL
+                    provider_name = "openai"
+                else:
+                    yield "Error: No LLM provider available."
+                    return
+        else:
+            if Config.DEFAULT_PROVIDER == "deepseek" and self.deepseek_provider:
+                provider = self.deepseek_provider
+                model_name = Config.DEEPSEEK_MODEL
+                provider_name = "deepseek"
+            elif Config.DEFAULT_PROVIDER == "anthropic" and self.anthropic_provider:
+                provider = self.anthropic_provider
+                model_name = Config.ANTHROPIC_MODEL
+                provider_name = "anthropic"
+            else:
+                provider = self.openai_provider or self.deepseek_provider or self.anthropic_provider
+                if not provider:
+                    yield "Error: No LLM provider available."
+                    return
+                model_name = Config.OPENAI_MODEL
+                provider_name = "openai"
+
+        # Honor model_override
+        if model_override:
+            model_override_lower = model_override.lower()
+            if "deepseek" in model_override_lower and self.deepseek_provider:
+                provider = self.deepseek_provider
+                model_name = model_override
+                provider_name = "deepseek"
+            elif any(x in model_override_lower for x in ("claude", "anthropic")) and self.anthropic_provider:
+                provider = self.anthropic_provider
+                model_name = model_override
+                provider_name = "anthropic"
+            elif self.openai_provider:
+                provider = self.openai_provider
+                model_name = model_override
+                provider_name = "openai"
+
+        system_content = self.system_prompt
+        if error_context:
+            system_content += f"\n\n<error_context>\n{error_context}\n</error_context>\n"
+            system_content += "\nThe user has encountered an error. Use the error context above to diagnose and suggest fixes."
+
+        session_id = getattr(self, '_session_id', None)
+        context_result = self.context_manager.assemble_context(
+            user_message=user_message,
+            conversation_history=conversation_history or [],
+            rag_context=rag_context,
+            system_prompt=system_content,
+            model=model_name,
+            session_id=session_id,
+        )
+        messages = context_result["messages"]
+        tools_description = self._get_tools_description()
+        messages.append({
+            "role": "system",
+            "content": f"\n\nAvailable tools:\n{tools_description}\n\nWhen you need to use a tool, respond with a JSON object containing the tool name and parameters.",
+        })
+
+        # --- Stream tokens ---
+        full_response = ""
+        try:
+            start_time = time.time()
+            async for token in provider.chat_completion_stream(
+                messages=messages,
+                model=model_name,
+                temperature=Config.OPENAI_TEMPERATURE,
+                max_tokens=Config.MAX_TOKENS,
+            ):
+                full_response += token
+                yield token
+            duration = time.time() - start_time
+        except Exception as e:
+            yield f"\n\nError during streaming: {str(e)}"
+            return
+
+        # --- Post-processing (same as process_message, runs after stream completes) ---
+        try:
+            # Memory update
+            if session_id and Config.ENABLE_MEMORY_DB:
+                updated_history = (conversation_history or []) + [
+                    {"role": "user", "content": user_message},
+                    {"role": "assistant", "content": full_response},
+                ]
+                self.context_manager.update_memory(
+                    session_id=session_id,
+                    user_message=user_message,
+                    assistant_response=full_response,
+                    conversation_history=updated_history,
+                )
+
+            # Auto-apply diffs silently
+            try:
+                diffs = self.diff_extractor.extract_diffs(full_response)
+                for diff in diffs:
+                    try:
+                        cleaned_diff = self.diff_extractor.clean_diff(diff)
+                        self._apply_diff_tool(cleaned_diff, dry_run=False)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def set_session_id(self, session_id: str):
         """Set session ID for memory management"""
         self._session_id = session_id
@@ -749,6 +869,30 @@ Always be helpful, accurate, and follow best practices. Take immediate action on
         
         return "\n".join(response_parts)
     
+    async def _stream_to_console(
+        self, user_message: str, conversation_history: list
+    ) -> str:
+        """
+        Stream a response progressively to the terminal using Rich Live.
+        Returns the full accumulated response string.
+        """
+        from rich.live import Live
+        from rich.text import Text
+
+        full_text = ""
+        try:
+            with Live("", refresh_per_second=15, console=self.console) as live:
+                async for token in self.process_message_stream(
+                    user_message, conversation_history=conversation_history
+                ):
+                    full_text += token
+                    live.update(Text(full_text))
+        except Exception as e:
+            # Fall back to non-streaming on error
+            full_text = self.process_message(user_message, conversation_history)
+            self.console.print(Markdown(full_text))
+        return full_text
+
     def chat(self):
         """Interactive chat interface"""
         self.console.print("[bold blue]Auto - AI Coding Assistant[/bold blue]")
@@ -802,17 +946,16 @@ Always be helpful, accurate, and follow best practices. Take immediate action on
                 
                 if not user_input.strip():
                     continue
-                
-                # Process message
-                response = self.process_message(user_input, conversation_history)
-                
+
+                # Stream response with Rich Live for progressive display
+                self.console.print("\n[Auto]:")
+                response = asyncio.run(
+                    self._stream_to_console(user_input, conversation_history)
+                )
+
                 # Update conversation history
                 conversation_history.append({"role": "user", "content": user_input})
                 conversation_history.append({"role": "assistant", "content": response})
-                
-                # Display response
-                self.console.print("\n[Auto]:")
-                self.console.print(Markdown(response))
             
             except KeyboardInterrupt:
                 self.console.print("\n\n[bold]Goodbye![/bold]")
@@ -893,83 +1036,103 @@ class AssistantTools:
     def execute_terminal(self, command: str, is_background: bool = False):
         """Execute terminal command"""
         return self.terminal.execute(command, is_background)
-
+    
     def generate_commit_message(self, staged_files: List[str]) -> Optional[str]:
         """
-        Generate a concise and conventional commit message based on staged changes.
+        Generate commit message from staged file changes using LLM
         
         Args:
-            staged_files: List of file paths that are staged for commit.
+            staged_files: List of file paths that are staged
             
         Returns:
-            A generated commit message string, or None if generation fails.
+            Generated commit message or None if generation fails
         """
-        if not self.git_service or not self.git_service.is_repo:
-            self.logger.warning("Not a Git repository. Cannot generate commit message.")
-            return None
-
         try:
-            # Get diffs for staged files
-            diff_texts = []
-            for file_path in staged_files:
-                diff_result = self.git_service.get_diff(file_path=file_path, staged=True)
-                if diff_result and diff_result.get("diff"):
-                    diff_texts.append(f"File: {file_path}\n```diff\n{diff_result['diff']}\n```")
+            from tools.git_integration import GitService
             
-            if not diff_texts:
-                self.logger.info("No staged changes to generate commit message from.")
+            # Initialize git service if not already done
+            git_service = GitService(self.workspace_path)
+            if not git_service.is_repo:
                 return None
-
-            combined_diff = "\n\n".join(diff_texts)
-
-            # Get RAG context for relevant files
+            
+            # Get diffs for staged files
+            diffs = []
+            for file_path in staged_files:
+                diff_result = git_service.get_diff(file_path, staged=True)
+                if diff_result.get("diff"):
+                    diffs.append({
+                        "file": file_path,
+                        "diff": diff_result["diff"]
+                    })
+            
+            if not diffs:
+                return None
+            
+            # Build context from diffs
+            diff_context = "\n\n".join([
+                f"File: {d['file']}\n{d['diff']}"
+                for d in diffs[:5]  # Limit to first 5 files
+            ])
+            
+            # Get codebase context if RAG is available
             rag_context = ""
             if self.rag_system and self.rag_system.is_indexed:
                 try:
-                    # Use file paths from staged files to get relevant context
-                    query_files = " ".join(staged_files)
-                    rag_context = self.rag_system.get_context_for_query(
-                        f"Generate commit message for changes in: {query_files}\n\n{combined_diff}",
-                        use_hybrid=True
-                    )
-                except Exception as e:
-                    self.logger.warning(f"RAG retrieval error during commit message generation: {e}")
-
-            # Determine LLM provider (prefer Claude for better reasoning)
+                    # Create a query from file names and changes
+                    query = f"Files changed: {', '.join([d['file'] for d in diffs[:3]])}"
+                    rag_context = self.rag_system.get_context_for_query(query, use_hybrid=True)
+                    if rag_context:
+                        rag_context = f"\n\nCodebase context:\n{rag_context[:500]}"  # Limit context
+                except Exception:
+                    pass
+            
+            # Use Claude for better commit message quality
             provider = self.anthropic_provider if self.anthropic_provider else self.openai_provider
-            model_name = Config.ANTHROPIC_MODEL if self.anthropic_provider else Config.OPENAI_MODEL
-
             if not provider:
-                self.logger.error("No LLM provider available for commit message generation.")
                 return None
-
-            system_prompt = """You are an expert software engineer. Your task is to generate a concise, conventional, and informative Git commit message based on the provided code changes (diffs) and codebase context.
             
-            Follow these guidelines:
-            - Use Conventional Commits format (e.g., feat: add new feature, fix: resolve bug, docs: update documentation, chore: maintainance).
-            - Keep the subject line (first line) short (under 50 characters) and descriptive.
-            - Use the imperative mood in the subject line (e.g., "fix: prevent X from happening" not "fixes: prevented X from happening").
-            - Provide a brief body if necessary, explaining *what* and *why*, not *how*.
-            - Focus on the user-facing impact or the core change.
-            - Do NOT include the diffs in the commit message itself.
-            - Do NOT include any conversational filler. Just the commit message.
-            """
+            model = Config.ANTHROPIC_MODEL if self.anthropic_provider else Config.OPENAI_MODEL
             
-            user_message = f"Generate a commit message for the following staged changes:\n\n{combined_diff}\n\nCodebase Context:\n{rag_context}\n\nCommit Message:"
+            # Build prompt for commit message generation
+            prompt = f"""Generate a concise, conventional commit message for the following changes.
 
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message}
-            ]
+Follow conventional commits format (feat, fix, docs, style, refactor, test, chore).
+Keep it under 72 characters for the subject line if possible.
 
+Changes:
+{diff_context}{rag_context}
+
+Generate only the commit message, no explanations."""
+            
+            # Generate commit message
             response = provider.chat_completion(
-                messages=messages,
-                model=model_name,
-                temperature=0.7,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a git commit message generator. Create concise, conventional commit messages that clearly describe code changes."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                model=model,
+                temperature=0.3,
                 max_tokens=200
             )
-            return response.content.strip()
-
+            
+            commit_message = response.content.strip()
+            
+            # Clean up the message (remove quotes, code blocks, etc.)
+            commit_message = commit_message.replace('```', '').strip()
+            if commit_message.startswith('"') and commit_message.endswith('"'):
+                commit_message = commit_message[1:-1]
+            
+            # Take first line if multi-line
+            commit_message = commit_message.split('\n')[0].strip()
+            
+            return commit_message if commit_message else None
+            
         except Exception as e:
-            self.logger.error(f"Error generating commit message: {e}")
+            print(f"⚠️  Error generating commit message: {e}")
             return None

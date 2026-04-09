@@ -1,17 +1,101 @@
 """
 Rate Limiting Module
-Implements rate limiting using in-memory storage (can be extended to Redis)
+Implements rate limiting using in-memory storage with optional Redis backend.
+Set REDIS_URL env var to enable Redis-backed persistence across restarts.
 """
 
+import os
 import time
-from typing import Dict, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Optional, Any
 from collections import defaultdict
 from datetime import datetime, timedelta
 from fastapi import HTTPException, status, Request
 from functools import wraps
 import asyncio
 
-# Rate limit storage (in-memory, can be replaced with Redis)
+# ---------------------------------------------------------------------------
+# Backend abstraction — in-memory (default) or Redis (when REDIS_URL is set)
+# ---------------------------------------------------------------------------
+
+class _InMemoryBackend:
+    """Sliding-window rate limit storage using in-memory dicts."""
+
+    def __init__(self) -> None:
+        self._storage: Dict[str, Dict[str, list]] = defaultdict(lambda: defaultdict(list))
+        self._lock = asyncio.Lock()
+
+    async def get_requests(self, identifier: str, window: str) -> List[float]:
+        async with self._lock:
+            return list(self._storage[identifier][f"{identifier}:{window}"])
+
+    async def add_request(self, identifier: str, window: str, timestamp: float, window_seconds: int) -> None:
+        async with self._lock:
+            key = f"{identifier}:{window}"
+            requests = self._storage[identifier][key]
+            # Prune expired
+            requests[:] = [t for t in requests if timestamp - t < window_seconds]
+            requests.append(timestamp)
+
+    async def count_requests(self, identifier: str, window: str, window_seconds: int) -> int:
+        async with self._lock:
+            now = time.time()
+            key = f"{identifier}:{window}"
+            requests = self._storage[identifier][key]
+            requests[:] = [t for t in requests if now - t < window_seconds]
+            return len(requests)
+
+
+class _RedisBackend:
+    """Sliding-window rate limit storage using Redis sorted sets (persistent)."""
+
+    def __init__(self, redis_url: str) -> None:
+        try:
+            import redis.asyncio as aioredis  # type: ignore
+            self._redis = aioredis.from_url(redis_url, decode_responses=True)
+        except ImportError as exc:
+            raise ImportError(
+                "redis package is required for Redis rate limiting: pip install redis"
+            ) from exc
+
+    def _key(self, identifier: str, window: str) -> str:
+        return f"ratelimit:{identifier}:{window}"
+
+    async def add_request(self, identifier: str, window: str, timestamp: float, window_seconds: int) -> None:
+        key = self._key(identifier, window)
+        pipe = self._redis.pipeline()
+        pipe.zadd(key, {str(timestamp): timestamp})
+        pipe.expire(key, window_seconds + 60)
+        await pipe.execute()
+
+    async def count_requests(self, identifier: str, window: str, window_seconds: int) -> int:
+        now = time.time()
+        key = self._key(identifier, window)
+        # Remove expired members then count
+        pipe = self._redis.pipeline()
+        pipe.zremrangebyscore(key, "-inf", now - window_seconds)
+        pipe.zcard(key)
+        results = await pipe.execute()
+        return results[1]
+
+
+def _create_backend() -> Any:
+    """Return Redis backend if REDIS_URL is configured, else in-memory."""
+    redis_url = os.getenv("REDIS_URL", "")
+    if redis_url:
+        try:
+            backend = _RedisBackend(redis_url)
+            print(f"[INFO] Rate limiter using Redis backend: {redis_url}")
+            return backend
+        except Exception as e:
+            print(f"[WARN] Redis rate limit backend failed ({e}), falling back to in-memory")
+    print("[INFO] Rate limiter using in-memory backend (data lost on restart)")
+    return _InMemoryBackend()
+
+
+# Module-level backend (initialised lazily by get_rate_limiter)
+_backend: Optional[Any] = None
+
+# Legacy in-memory storage kept for backward compat with _check_rate_limit internals
 _rate_limit_storage: Dict[str, Dict[str, list]] = defaultdict(lambda: defaultdict(list))
 _rate_limit_lock = asyncio.Lock()
 
@@ -24,10 +108,12 @@ class RateLimiter:
         requests_per_minute: int = 60,
         requests_per_hour: int = 1000,
         requests_per_day: int = 10000,
+        backend: Optional[Any] = None,
     ):
         self.requests_per_minute = requests_per_minute
         self.requests_per_hour = requests_per_hour
         self.requests_per_day = requests_per_day
+        self._backend = backend  # None = use legacy _check_rate_limit path
 
     def _get_identifier(self, request: Request, user_id: Optional[str] = None) -> str:
         """Get identifier for rate limiting (user_id or IP address)"""
@@ -96,12 +182,17 @@ class RateLimiter:
         self, request: Request, user_id: Optional[str] = None
     ) -> Tuple[bool, Dict[str, Any]]:
         """
-        Check rate limits for all windows
+        Check rate limits for all windows.
+        Uses pluggable backend (Redis or in-memory) when available.
         Returns: (is_allowed, rate_limit_info)
         """
         identifier = self._get_identifier(request, user_id)
 
-        # Check all windows
+        if self._backend is not None:
+            # New backend-aware path
+            return await self._check_rate_limit_backend(identifier)
+
+        # Legacy in-memory path (unchanged behaviour)
         checks = {
             "minute": await self._check_rate_limit(
                 identifier, "minute", self.requests_per_minute
@@ -114,10 +205,7 @@ class RateLimiter:
             ),
         }
 
-        # Check if any limit is exceeded
         is_allowed = all(allowed for allowed, _, _ in checks.values())
-
-        # Get the most restrictive limit info
         rate_limit_info = {
             "limit": {
                 "minute": self.requests_per_minute,
@@ -135,7 +223,47 @@ class RateLimiter:
                 "day": checks["day"][2],
             },
         }
+        return is_allowed, rate_limit_info
 
+    async def _check_rate_limit_backend(self, identifier: str) -> Tuple[bool, Dict[str, Any]]:
+        """Backend-aware rate limit check (Redis or in-memory backend)."""
+        now = time.time()
+        windows = {
+            "minute": (60, self.requests_per_minute),
+            "hour": (3600, self.requests_per_hour),
+            "day": (86400, self.requests_per_day),
+        }
+
+        is_allowed = True
+        remaining: Dict[str, int] = {}
+        reset: Dict[str, int] = {}
+
+        try:
+            for window, (window_seconds, limit) in windows.items():
+                await self._backend.add_request(identifier, window, now, window_seconds)
+                count = await self._backend.count_requests(identifier, window, window_seconds)
+                rem = max(0, limit - count)
+                remaining[window] = rem
+                reset[window] = int(now + window_seconds)
+                if count > limit:
+                    is_allowed = False
+        except Exception as e:
+            # Backend failure (e.g. Redis down) — fail open to avoid blocking requests
+            print(f"[WARN] Rate limit backend error: {e}. Allowing request.")
+            is_allowed = True
+            for window, (window_seconds, limit) in windows.items():
+                remaining[window] = limit
+                reset[window] = int(now + window_seconds)
+
+        rate_limit_info = {
+            "limit": {
+                "minute": self.requests_per_minute,
+                "hour": self.requests_per_hour,
+                "day": self.requests_per_day,
+            },
+            "remaining": remaining,
+            "reset": reset,
+        }
         return is_allowed, rate_limit_info
 
 
@@ -144,18 +272,19 @@ _rate_limiter: Optional[RateLimiter] = None
 
 
 def get_rate_limiter() -> RateLimiter:
-    """Get or create rate limiter instance"""
-    global _rate_limiter
+    """Get or create rate limiter instance, wiring Redis backend if REDIS_URL is set."""
+    global _rate_limiter, _backend
     if _rate_limiter is None:
-        import os
-
         requests_per_minute = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
         requests_per_hour = int(os.getenv("RATE_LIMIT_PER_HOUR", "1000"))
         requests_per_day = int(os.getenv("RATE_LIMIT_PER_DAY", "10000"))
+        if _backend is None:
+            _backend = _create_backend()
         _rate_limiter = RateLimiter(
             requests_per_minute=requests_per_minute,
             requests_per_hour=requests_per_hour,
             requests_per_day=requests_per_day,
+            backend=_backend,
         )
     return _rate_limiter
 

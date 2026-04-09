@@ -2,11 +2,19 @@
 FastAPI backend for AI Coding Assistant Web UI
 Provides REST API and WebSocket for real-time communication
 """
+
 import os
 import sys
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request
+from fastapi import (
+    FastAPI,
+    WebSocket,
+    WebSocketDisconnect,
+    HTTPException,
+    Depends,
+    Request,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -22,7 +30,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from assistant import CodingAssistant
 from tools.code_completion import CodeCompletionEngine
 from tools.git_integration import GitService
-from tools.auth import get_auth_manager, get_current_user, User, UserCreate, UserLogin, TokenResponse, JWT_EXPIRATION_HOURS
+from tools.auth import (
+    get_auth_manager,
+    get_current_user,
+    User,
+    UserCreate,
+    UserLogin,
+    TokenResponse,
+    JWT_EXPIRATION_HOURS,
+)
 from tools.rate_limiter import get_rate_limiter, rate_limit
 from tools.security import get_cors_origins, sanitize_file_path, sanitize_input
 from config import Config
@@ -40,7 +56,7 @@ def safe_debug_log(location: str, message: str, data: Optional[Dict] = None):
         log_dir = Path(__file__).parent.parent.parent / ".cursor"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file_path = log_dir / "debug.log"
-        
+
         log_entry = {
             "sessionId": "debug-session",
             "runId": "run1",
@@ -48,9 +64,9 @@ def safe_debug_log(location: str, message: str, data: Optional[Dict] = None):
             "location": location,
             "message": message,
             "data": data or {},
-            "timestamp": int(time.time() * 1000)
+            "timestamp": int(time.time() * 1000),
         }
-        
+
         with open(log_file_path, "a", encoding="utf-8") as log_file:
             log_file.write(json_lib.dumps(log_entry) + "\n")
     except Exception:
@@ -71,9 +87,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[ERROR] Assistant initialization failed: {e}")
         import traceback
+
         traceback.print_exc()
         raise
-    
+
     # Auto-index RAG if not already indexed
     if assistant.rag_system:
         try:
@@ -82,40 +99,46 @@ async def lifespan(app: FastAPI):
                 print("[INFO] RAG not indexed. Starting automatic indexing...")
                 # Start indexing in background (non-blocking)
                 import threading
+
                 def index_background():
                     try:
                         assistant.rag_system.index_codebase(force_reindex=False)
                         print("[OK] RAG indexing completed")
                     except Exception as e:
                         print(f"[WARN] RAG indexing failed: {e}")
-                
+
                 index_thread = threading.Thread(target=index_background, daemon=True)
                 index_thread.start()
         except Exception as e:
             print(f"[WARN] Could not check RAG status: {e}")
-    
+
     # Initialize completion engine
     try:
         completion_engine = CodeCompletionEngine(
-            rag_system=assistant.rag_system,
-            workspace_path=workspace_path
+            rag_system=assistant.rag_system, workspace_path=workspace_path
         )
         print(f"[OK] Completion engine initialized")
     except Exception as e:
         print(f"[WARN] Completion engine initialization failed: {e}")
         completion_engine = None
-    
+
     # Initialize git service
     try:
         git_service = GitService(workspace_path=workspace_path)
         if git_service.is_repo:
-            print(f"[OK] Git service initialized (repo: {git_service.get_current_branch()})")
+            print(
+                f"[OK] Git service initialized (repo: {git_service.get_current_branch()})"
+            )
         else:
             print(f"[WARN] Git service initialized (not a git repository)")
     except Exception as e:
         print(f"[WARN] Git service initialization failed: {e}")
         git_service = None
-    
+
+    # Startup validation warnings
+    for warning in Config.validate_on_startup():
+        print(f"[WARN] {warning}")
+
     print(f"[OK] Assistant initialized for workspace: {workspace_path}")
     yield
     # Cleanup
@@ -128,7 +151,7 @@ app = FastAPI(
     title="AI Coding Assistant API",
     description="Web API for AI Coding Assistant",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # CORS middleware - use environment-based origins
@@ -140,7 +163,9 @@ if not cors_origins and os.getenv("ENVIRONMENT", "development") == "production":
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins if cors_origins else ["*"],  # Fallback to * for development
+    allow_origins=(
+        cors_origins if cors_origins else ["*"]
+    ),  # Fallback to * for development
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -191,6 +216,7 @@ class CompletionRequest(BaseModel):
 
 class ComposerRequest(BaseModel):
     """Request for multi-file editing via Composer"""
+
     query: str
     files: Optional[List[str]] = None  # Specific files to edit, None = all relevant
     context: Optional[str] = None  # Additional context
@@ -225,11 +251,16 @@ class RulesSaveRequest(BaseModel):
 async def rate_limit_middleware(request: Request, call_next):
     """Apply rate limiting to all requests"""
     # Skip rate limiting for health checks and auth endpoints
-    if request.url.path in ["/", "/api/health", "/api/auth/login", "/api/auth/register"]:
+    if request.url.path in [
+        "/",
+        "/api/health",
+        "/api/auth/login",
+        "/api/auth/register",
+    ]:
         return await call_next(request)
-    
+
     rate_limiter = get_rate_limiter()
-    
+
     # Get user_id if authenticated
     user_id = None
     try:
@@ -242,9 +273,9 @@ async def rate_limit_middleware(request: Request, call_next):
             user_id = payload.get("sub")
     except Exception:
         pass  # Not authenticated, use IP-based rate limiting
-    
+
     is_allowed, rate_limit_info = await rate_limiter.check_rate_limit(request, user_id)
-    
+
     if not is_allowed:
         raise HTTPException(
             status_code=429,
@@ -252,30 +283,33 @@ async def rate_limit_middleware(request: Request, call_next):
             headers={
                 "X-RateLimit-Limit": str(rate_limit_info["limit"]["minute"]),
                 "X-RateLimit-Remaining": "0",
-                "X-RateLimit-Reset": str(rate_limit_info["reset"]["minute"])
-            }
+                "X-RateLimit-Reset": str(rate_limit_info["reset"]["minute"]),
+            },
         )
-    
+
     response = await call_next(request)
-    
+
     # Add rate limit headers
-    response.headers["X-RateLimit-Limit-Minute"] = str(rate_limit_info["limit"]["minute"])
-    response.headers["X-RateLimit-Remaining-Minute"] = str(rate_limit_info["remaining"]["minute"])
-    response.headers["X-RateLimit-Reset-Minute"] = str(rate_limit_info["reset"]["minute"])
-    
+    response.headers["X-RateLimit-Limit-Minute"] = str(
+        rate_limit_info["limit"]["minute"]
+    )
+    response.headers["X-RateLimit-Remaining-Minute"] = str(
+        rate_limit_info["remaining"]["minute"]
+    )
+    response.headers["X-RateLimit-Reset-Minute"] = str(
+        rate_limit_info["reset"]["minute"]
+    )
+
     return response
 
 
 # REST API Endpoints
 
+
 @app.get("/")
 async def root():
     """Health check"""
-    return {
-        "status": "ok",
-        "service": "AI Coding Assistant API",
-        "version": "1.0.0"
-    }
+    return {"status": "ok", "service": "AI Coding Assistant API", "version": "1.0.0"}
 
 
 @app.get("/api/health")
@@ -284,7 +318,7 @@ async def get_health():
     try:
         # Check if assistant is initialized
         assistant_ready = assistant is not None
-        
+
         # Check RAG status
         rag_status = "not_indexed"
         if assistant and assistant.rag_system:
@@ -292,31 +326,35 @@ async def get_health():
                 rag_stats = assistant.rag_system.get_index_stats()
                 if rag_stats.get("indexed", False):
                     rag_status = "indexed"
-                elif hasattr(assistant.rag_system, '_index_lock') and assistant.rag_system._index_lock.locked():
+                elif (
+                    hasattr(assistant.rag_system, "_index_lock")
+                    and assistant.rag_system._index_lock.locked()
+                ):
                     rag_status = "indexing"
             except Exception:
                 pass
-        
+
         # Check service availability
         services = {
-            "git": git_service is not None and (git_service.is_repo if git_service else False),
-            "rules": assistant is not None and hasattr(assistant, 'rules_engine') and assistant.rules_engine is not None,
-            "performance": assistant is not None and hasattr(assistant, 'performance_monitor') and assistant.performance_monitor is not None
+            "git": git_service is not None
+            and (git_service.is_repo if git_service else False),
+            "rules": assistant is not None
+            and hasattr(assistant, "rules_engine")
+            and assistant.rules_engine is not None,
+            "performance": assistant is not None
+            and hasattr(assistant, "performance_monitor")
+            and assistant.performance_monitor is not None,
         }
-        
+
         return {
             "status": "ready" if assistant_ready else "initializing",
             "assistant_ready": assistant_ready,
             "rag_status": rag_status,
             "services": services,
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
     except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e),
-            "timestamp": time.time()
-        }
+        return {"status": "error", "error": str(e), "timestamp": time.time()}
 
 
 # Authentication endpoints
@@ -328,14 +366,14 @@ async def register(user_data: UserCreate):
         user = auth_manager.create_user(
             username=user_data.username,
             email=user_data.email,
-            password=user_data.password
+            password=user_data.password,
         )
         access_token = auth_manager.create_access_token(user)
         refresh_token = auth_manager.create_refresh_token(user)
         return TokenResponse(
             access_token=access_token,
             refresh_token=refresh_token,
-            expires_in=JWT_EXPIRATION_HOURS * 3600
+            expires_in=JWT_EXPIRATION_HOURS * 3600,
         )
     except HTTPException:
         raise
@@ -349,16 +387,13 @@ async def login(credentials: UserLogin):
     auth_manager = get_auth_manager()
     user = auth_manager.authenticate_user(credentials.username, credentials.password)
     if not user:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid username or password"
-        )
+        raise HTTPException(status_code=401, detail="Invalid username or password")
     access_token = auth_manager.create_access_token(user)
     refresh_token = auth_manager.create_refresh_token(user)
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
-        expires_in=JWT_EXPIRATION_HOURS * 3600
+        expires_in=JWT_EXPIRATION_HOURS * 3600,
     )
 
 
@@ -368,10 +403,7 @@ async def refresh_token_endpoint(refresh_token: str):
     auth_manager = get_auth_manager()
     try:
         new_access_token = auth_manager.refresh_access_token(refresh_token)
-        return {
-            "access_token": new_access_token,
-            "token_type": "bearer"
-        }
+        return {"access_token": new_access_token, "token_type": "bearer"}
     except HTTPException:
         raise
     except Exception as e:
@@ -385,7 +417,7 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
         "id": current_user.id,
         "username": current_user.username,
         "email": current_user.email,
-        "role": current_user.role
+        "role": current_user.role,
     }
 
 
@@ -394,7 +426,7 @@ async def get_status():
     """Get system status"""
     if not assistant:
         raise HTTPException(status_code=503, detail="Assistant not initialized")
-    
+
     # Determine active model based on configuration
     if Config.USE_HYBRID_MODELS:
         # Hybrid mode - show available models
@@ -405,9 +437,17 @@ async def get_status():
             available_models.append(Config.ANTHROPIC_MODEL)
         if assistant.openai_provider:
             available_models.append(Config.OPENAI_MODEL)
-        
+
         model_info = f"Hybrid Mode: {', '.join(available_models) if available_models else 'None configured'}"
-        default_model = Config.DEEPSEEK_MODEL if assistant.deepseek_provider else (Config.ANTHROPIC_MODEL if assistant.anthropic_provider else Config.OPENAI_MODEL)
+        default_model = (
+            Config.DEEPSEEK_MODEL
+            if assistant.deepseek_provider
+            else (
+                Config.ANTHROPIC_MODEL
+                if assistant.anthropic_provider
+                else Config.OPENAI_MODEL
+            )
+        )
     else:
         # Single model mode
         if Config.DEFAULT_PROVIDER == "deepseek" and assistant.deepseek_provider:
@@ -417,7 +457,7 @@ async def get_status():
         else:
             default_model = Config.OPENAI_MODEL
         model_info = default_model
-    
+
     stats = {
         "assistant_ready": assistant is not None,
         "rag_enabled": assistant.rag_system is not None if assistant else False,
@@ -428,22 +468,23 @@ async def get_status():
         "available_providers": {
             "deepseek": assistant.deepseek_provider is not None,
             "anthropic": assistant.anthropic_provider is not None,
-            "openai": assistant.openai_provider is not None
-        }
+            "openai": assistant.openai_provider is not None,
+        },
     }
-    
+
     if assistant and assistant.rag_system:
         try:
             rag_stats = assistant.rag_system.get_index_stats()
             stats["rag_indexed"] = rag_stats.get("indexed", False)
             stats["rag_chunks"] = rag_stats.get("total_chunks", 0)
         except Exception as e:
-            safe_debug_log("app.py:get_status", "Silent exception in get_status", {
-                "error_type": type(e).__name__,
-                "error_message": str(e)
-            })
+            safe_debug_log(
+                "app.py:get_status",
+                "Silent exception in get_status",
+                {"error_type": type(e).__name__, "error_message": str(e)},
+            )
             pass
-    
+
     return stats
 
 
@@ -452,19 +493,12 @@ async def chat(message: ChatMessage):
     """Process chat message (synchronous)"""
     if not assistant:
         raise HTTPException(status_code=503, detail="Assistant not initialized")
-    
+
     try:
         response = assistant.process_message(message.message)
-        return {
-            "response": response,
-            "success": True
-        }
+        return {"response": response, "success": True}
     except Exception as e:
-        return {
-            "response": f"Error: {str(e)}",
-            "success": False,
-            "error": str(e)
-        }
+        return {"response": f"Error: {str(e)}", "success": False, "error": str(e)}
 
 
 @app.get("/api/files")
@@ -472,7 +506,7 @@ async def list_files(directory: str = "."):
     """List files in directory"""
     if not assistant:
         raise HTTPException(status_code=503, detail="Assistant not initialized")
-    
+
     try:
         result = assistant.file_ops.list_directory(directory)
         return result
@@ -485,12 +519,10 @@ async def read_file(request: FileReadRequest):
     """Read a file"""
     if not assistant:
         raise HTTPException(status_code=503, detail="Assistant not initialized")
-    
+
     try:
         result = assistant.file_ops.read_file(
-            request.file_path,
-            offset=request.offset,
-            limit=request.limit
+            request.file_path, offset=request.offset, limit=request.limit
         )
         return result
     except Exception as e:
@@ -502,7 +534,7 @@ async def write_file(request: FileWriteRequest):
     """Write a file"""
     if not assistant:
         raise HTTPException(status_code=503, detail="Assistant not initialized")
-    
+
     try:
         result = assistant.file_ops.write_file(request.file_path, request.contents)
         return result
@@ -515,13 +547,13 @@ async def edit_file(request: FileEditRequest):
     """Edit a file"""
     if not assistant:
         raise HTTPException(status_code=503, detail="Assistant not initialized")
-    
+
     try:
         result = assistant.file_ops.search_replace(
             request.file_path,
             request.old_string,
             request.new_string,
-            replace_all=request.replace_all
+            replace_all=request.replace_all,
         )
         return result
     except Exception as e:
@@ -533,7 +565,7 @@ async def preview_diff(request: DiffRequest):
     """Preview a diff"""
     if not assistant:
         raise HTTPException(status_code=503, detail="Assistant not initialized")
-    
+
     try:
         result = assistant.diff_editor.preview_diff(request.diff_text)
         return result
@@ -546,7 +578,7 @@ async def apply_diff(request: DiffRequest):
     """Apply a diff"""
     if not assistant:
         raise HTTPException(status_code=503, detail="Assistant not initialized")
-    
+
     try:
         # Parse diff text into FileDiff objects
         file_diffs = assistant.diff_editor.parse_diff(request.diff_text)
@@ -562,17 +594,18 @@ async def validate_diff(request: ValidateDiffRequest):
     """Validate a diff before applying"""
     if not assistant:
         raise HTTPException(status_code=503, detail="Assistant not initialized")
-    
+
     try:
-        is_valid, error_message, validation_results = assistant.diff_editor.validate_diff(
-            request.diff_text,
-            use_validation_service=True
+        is_valid, error_message, validation_results = (
+            assistant.diff_editor.validate_diff(
+                request.diff_text, use_validation_service=True
+            )
         )
-        
+
         return {
             "is_valid": is_valid,
             "error_message": error_message,
-            "validation_results": validation_results
+            "validation_results": validation_results,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -582,27 +615,25 @@ async def validate_diff(request: ValidateDiffRequest):
 async def debug_codebase(
     auto_fix: bool = True,
     file_pattern: Optional[str] = None,
-    max_files: Optional[int] = None
+    max_files: Optional[int] = None,
 ):
     """
     Debug entire codebase - scan, detect bugs, and optionally auto-fix
-    
+
     Args:
         auto_fix: If True, automatically fix detected bugs
         file_pattern: Optional pattern to filter files (e.g., "*.py")
         max_files: Maximum number of files to analyze
-        
+
     Returns:
         Dict with scan results, bugs found, and fixes applied
     """
     if not assistant or not assistant.debug_mode:
         raise HTTPException(status_code=503, detail="Debug mode not available")
-    
+
     try:
         results = assistant.debug_mode.debug_codebase(
-            auto_fix=auto_fix,
-            file_pattern=file_pattern,
-            max_files=max_files
+            auto_fix=auto_fix, file_pattern=file_pattern, max_files=max_files
         )
         return results
     except Exception as e:
@@ -610,23 +641,20 @@ async def debug_codebase(
 
 
 @app.post("/api/debug/file")
-async def debug_file(
-    file_path: str,
-    auto_fix: bool = True
-):
+async def debug_file(file_path: str, auto_fix: bool = True):
     """
     Debug a single file
-    
+
     Args:
         file_path: Path to file to debug
         auto_fix: If True, automatically fix bugs
-        
+
     Returns:
         Dict with bugs found and fixes applied
     """
     if not assistant or not assistant.debug_mode:
         raise HTTPException(status_code=503, detail="Debug mode not available")
-    
+
     try:
         results = assistant.debug_mode.debug_file(file_path, auto_fix=auto_fix)
         return results
@@ -636,6 +664,7 @@ async def debug_file(
 
 class InteractiveDebugRequest(BaseModel):
     """Request for interactive debugging"""
+
     bug_description: str
     error_text: Optional[str] = None
     file_path: Optional[str] = None
@@ -646,23 +675,23 @@ async def interactive_debug(request: InteractiveDebugRequest):
     """
     Start interactive debugging session (Cursor AI-style)
     Generates hypotheses, instruments code, and collects runtime data
-    
+
     Args:
         bug_description: User's description of the bug
         error_text: Optional error message/stack trace
         file_path: Optional file where bug occurs
-        
+
     Returns:
         Dict with session info and hypotheses
     """
     if not assistant or not assistant.debug_mode:
         raise HTTPException(status_code=503, detail="Debug mode not available")
-    
+
     try:
         results = assistant.interactive_debug(
             bug_description=request.bug_description,
             error_text=request.error_text,
-            file_path=request.file_path
+            file_path=request.file_path,
         )
         return results
     except Exception as e:
@@ -677,39 +706,40 @@ async def composer_edit(request: ComposerRequest):
     """
     if not assistant:
         raise HTTPException(status_code=503, detail="Assistant not initialized")
-    
+
     try:
         # Build query with context
         full_query = request.query
         if request.context:
             full_query = f"{request.query}\n\nContext: {request.context}"
-        
+
         if request.files:
             full_query += f"\n\nFiles to edit: {', '.join(request.files)}"
-        
+
         # Process the query through assistant
         conversation_history = []  # Could be enhanced with session management
-        
+
         # Get RAG context if available
         rag_context = ""
         if assistant.rag_system and assistant.rag_system.is_indexed:
             try:
                 rag_context = assistant.rag_system.get_context_for_query(
-                    request.query,
-                    use_hybrid=True
+                    request.query, use_hybrid=True
                 )
             except Exception as e:
                 print(f"[WARN] RAG retrieval error: {e}")
-        
+
         # Determine which LLM provider to use
         provider = assistant.openai_provider
         model_name = Config.OPENAI_MODEL
-        
+
         if Config.USE_HYBRID_MODELS:
-            task_info = assistant.task_classifier.classify(full_query, conversation_history)
+            task_info = assistant.task_classifier.classify(
+                full_query, conversation_history
+            )
             provider_name = task_info["provider"]
             model_name = task_info["model"]
-            
+
             if provider_name == "deepseek" and assistant.deepseek_provider:
                 provider = assistant.deepseek_provider
             elif provider_name == "anthropic" and assistant.anthropic_provider:
@@ -725,11 +755,14 @@ async def composer_edit(request: ComposerRequest):
                 elif assistant.openai_provider:
                     provider = assistant.openai_provider
                     model_name = Config.OPENAI_MODEL
-        
+
         # Validate provider is available
         if not provider:
-            raise HTTPException(status_code=503, detail="No LLM provider available. Please configure at least one API key.")
-        
+            raise HTTPException(
+                status_code=503,
+                detail="No LLM provider available. Please configure at least one API key.",
+            )
+
         # Build system prompt for multi-file editing
         system_prompt = assistant.system_prompt + """
         
@@ -740,90 +773,91 @@ You are now in Composer mode for multi-file editing. When the user requests chan
 4. Be comprehensive - show all changes needed
 5. Do NOT ask for confirmation - just generate the diffs
 """
-        
+
         if rag_context:
-            system_prompt += f"\n\n<codebase_context>\n{rag_context}\n</codebase_context>"
-        
+            system_prompt += (
+                f"\n\n<codebase_context>\n{rag_context}\n</codebase_context>"
+            )
+
         # Validate model_name
         if not model_name:
             model_name = Config.OPENAI_MODEL
-            print(f"[WARN] model_name was None in composer, using default: {model_name}")
-        
+            print(
+                f"[WARN] model_name was None in composer, using default: {model_name}"
+            )
+
         # Use context manager
-        session_id = getattr(assistant, '_session_id', None)
+        session_id = getattr(assistant, "_session_id", None)
         context_result = assistant.context_manager.assemble_context(
             user_message=full_query,
             conversation_history=conversation_history,
             rag_context=rag_context,
             system_prompt=system_prompt,
             model=model_name,
-            session_id=session_id
+            session_id=session_id,
         )
-        
+
         messages = context_result["messages"]
-        
+
         # Call LLM
         response = provider.chat_completion(
             messages=messages,
             model=model_name,
             temperature=Config.OPENAI_TEMPERATURE,
-            max_tokens=Config.MAX_TOKENS * 2  # More tokens for multi-file edits
+            max_tokens=Config.MAX_TOKENS * 2,  # More tokens for multi-file edits
         )
-        
+
         # Validate response
-        if not response or not hasattr(response, 'content') or response.content is None:
-            raise HTTPException(status_code=500, detail="LLM response is empty or invalid")
-        
+        if not response or not hasattr(response, "content") or response.content is None:
+            raise HTTPException(
+                status_code=500, detail="LLM response is empty or invalid"
+            )
+
         assistant_message = response.content
-        
+
         # Extract diffs from response
         diffs = assistant.diff_extractor.extract_diffs(assistant_message)
-        
+
         if not diffs:
             return {
                 "success": False,
                 "error": "No diffs found in response",
-                "response": assistant_message
+                "response": assistant_message,
             }
-        
+
         # Parse diffs to get file list
         file_diffs = []
         for diff_text in diffs:
             parsed = assistant.diff_editor.parse_diff(diff_text)
             file_diffs.extend(parsed)
-        
+
         # Preview diffs (dry run)
         preview_results = []
         for file_diff in file_diffs:
             preview = assistant.diff_editor.apply_diff(file_diff, dry_run=True)
-            preview_results.append({
-                "file": file_diff.new_path,
-                "old_path": file_diff.old_path,
-                "hunks": len(file_diff.hunks),
-                "preview": preview
-            })
-        
+            preview_results.append(
+                {
+                    "file": file_diff.new_path,
+                    "old_path": file_diff.old_path,
+                    "hunks": len(file_diff.hunks),
+                    "preview": preview,
+                }
+            )
+
         return {
             "success": True,
             "diffs": diffs,
             "files": [fd.new_path for fd in file_diffs],
             "file_diffs": [
-                {
-                    "file": fd.new_path,
-                    "old_path": fd.old_path,
-                    "hunks": len(fd.hunks)
-                }
+                {"file": fd.new_path, "old_path": fd.old_path, "hunks": len(fd.hunks)}
                 for fd in file_diffs
             ],
             "preview": preview_results,
-            "response": assistant_message
+            "response": assistant_message,
         }
-    
+
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
 
 
 @app.post("/api/search")
@@ -831,7 +865,7 @@ async def search(query: str, search_type: str = "semantic"):
     """Search codebase"""
     if not assistant:
         raise HTTPException(status_code=503, detail="Assistant not initialized")
-    
+
     try:
         if search_type == "semantic":
             result = assistant.codebase_search.semantic_search(query)
@@ -839,7 +873,7 @@ async def search(query: str, search_type: str = "semantic"):
             result = assistant.codebase_search.grep(query)
         else:
             result = assistant.codebase_search.semantic_search(query)
-        
+
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -850,33 +884,31 @@ async def index_codebase(force: bool = False):
     """Index codebase for RAG (non-blocking)"""
     if not assistant or not assistant.rag_system:
         raise HTTPException(status_code=503, detail="RAG system not available")
-    
+
     try:
         # Check if already indexing
-        if hasattr(assistant.rag_system, '_index_lock'):
+        if hasattr(assistant.rag_system, "_index_lock"):
             if assistant.rag_system._index_lock.locked():
                 return {
                     "status": "already_indexing",
-                    "message": "Indexing is already in progress"
+                    "message": "Indexing is already in progress",
                 }
-        
+
         # Run indexing in background thread (non-blocking)
         import threading
+
         def index_background():
             try:
                 assistant.rag_system.index_codebase(force_reindex=force)
                 print("[OK] RAG indexing completed")
             except Exception as e:
                 print(f"[WARN] Background indexing failed: {e}")
-        
+
         index_thread = threading.Thread(target=index_background, daemon=True)
         index_thread.start()
-        
+
         # Return immediately
-        return {
-            "status": "started",
-            "message": "Indexing started in background"
-        }
+        return {"status": "started", "message": "Indexing started in background"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -886,46 +918,43 @@ async def get_stats():
     """Get usage statistics"""
     if not assistant:
         raise HTTPException(status_code=503, detail="Assistant not initialized")
-    
-    stats = {
-        "cost": assistant.cost_tracker.get_stats(),
-        "rag": {},
-        "performance": {}
-    }
-    
+
+    stats = {"cost": assistant.cost_tracker.get_stats(), "rag": {}, "performance": {}}
+
     if assistant.rag_system:
         try:
             rag_stats = assistant.rag_system.get_index_stats()
             stats["rag"] = rag_stats
         except Exception as e:
-            safe_debug_log("app.py:get_stats", "Silent exception in get_stats", {
-                "error_type": type(e).__name__,
-                "error_message": str(e)
-            })
+            safe_debug_log(
+                "app.py:get_stats",
+                "Silent exception in get_stats",
+                {"error_type": type(e).__name__, "error_message": str(e)},
+            )
             pass
-    
+
     if assistant.performance_monitor:
         try:
             stats["performance"] = assistant.performance_monitor.get_current_stats()
         except Exception as e:
             print(f"[WARN] Error getting performance stats: {e}")
-    
+
     return stats
 
 
 # Git API Endpoints
+
 
 @app.get("/api/git/status")
 async def get_git_status():
     """Get repository status"""
     if not git_service:
         raise HTTPException(status_code=503, detail="Git service not initialized")
-    
+
     try:
         # Use asyncio timeout to prevent hanging
         status = await asyncio.wait_for(
-            asyncio.to_thread(git_service.get_status),
-            timeout=5.0
+            asyncio.to_thread(git_service.get_status), timeout=5.0
         )
         return status
     except asyncio.TimeoutError:
@@ -939,7 +968,7 @@ async def stage_files(request: GitStageRequest):
     """Stage files"""
     if not git_service:
         raise HTTPException(status_code=503, detail="Git service not initialized")
-    
+
     try:
         result = git_service.stage_files(request.files)
         return result
@@ -952,7 +981,7 @@ async def unstage_files(request: GitUnstageRequest):
     """Unstage files"""
     if not git_service:
         raise HTTPException(status_code=503, detail="Git service not initialized")
-    
+
     try:
         result = git_service.unstage_files(request.files)
         return result
@@ -965,23 +994,23 @@ async def create_commit(request: GitCommitRequest):
     """Create commit"""
     if not git_service:
         raise HTTPException(status_code=503, detail="Git service not initialized")
-    
+
     if not assistant:
         raise HTTPException(status_code=503, detail="Assistant not initialized")
-    
+
     try:
         commit_message = request.message
-        
+
         # Generate commit message if requested
         if request.generate_message:
             staged_status = git_service.get_status()
             staged_files = [f["path"] for f in staged_status.get("staged", [])]
-            
+
             if staged_files:
                 generated_message = assistant.generate_commit_message(staged_files)
                 if generated_message:
                     commit_message = generated_message
-        
+
         result = git_service.commit(commit_message, request.files)
         return result
     except Exception as e:
@@ -993,7 +1022,7 @@ async def get_branches():
     """Get all branches"""
     if not git_service:
         raise HTTPException(status_code=503, detail="Git service not initialized")
-    
+
     try:
         branches = git_service.get_branches()
         return branches
@@ -1006,7 +1035,7 @@ async def switch_branch(request: GitBranchRequest):
     """Switch or create branch"""
     if not git_service:
         raise HTTPException(status_code=503, detail="Git service not initialized")
-    
+
     try:
         if request.create:
             result = git_service.create_branch(request.branch)
@@ -1022,7 +1051,7 @@ async def get_git_diff(file_path: Optional[str] = None, staged: bool = False):
     """Get diff for file or all changes"""
     if not git_service:
         raise HTTPException(status_code=503, detail="Git service not initialized")
-    
+
     try:
         result = git_service.get_diff(file_path, staged)
         return result
@@ -1035,7 +1064,7 @@ async def get_commit_history(limit: int = 10):
     """Get recent commit history"""
     if not git_service:
         raise HTTPException(status_code=503, detail="Git service not initialized")
-    
+
     try:
         history = git_service.get_commit_history(limit)
         return {"commits": history}
@@ -1045,34 +1074,30 @@ async def get_commit_history(limit: int = 10):
 
 # Rules API Endpoints
 
+
 @app.get("/api/rules")
 async def get_rules():
     """Get current rules content"""
     if not assistant:
         raise HTTPException(status_code=503, detail="Assistant not initialized")
-    
+
     try:
-        if not hasattr(assistant, 'rules_engine') or not assistant.rules_engine:
+        if not hasattr(assistant, "rules_engine") or not assistant.rules_engine:
             return {"exists": False, "content": "", "info": {}}
-        
+
         rules_engine = assistant.rules_engine
-        
+
         # Use asyncio timeout to prevent hanging
         def get_rules_data():
             content = rules_engine.get_rules()
             info = rules_engine.get_rules_info()
             return content, info
-        
+
         content, info = await asyncio.wait_for(
-            asyncio.to_thread(get_rules_data),
-            timeout=3.0
+            asyncio.to_thread(get_rules_data), timeout=3.0
         )
-        
-        return {
-            "exists": info["exists"],
-            "content": content or "",
-            "info": info
-        }
+
+        return {"exists": info["exists"], "content": content or "", "info": info}
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Rules retrieval timed out")
     except Exception as e:
@@ -1084,17 +1109,17 @@ async def save_rules(request: RulesSaveRequest):
     """Save rules to .cursorrules file"""
     if not assistant:
         raise HTTPException(status_code=503, detail="Assistant not initialized")
-    
+
     try:
-        if not hasattr(assistant, 'rules_engine') or not assistant.rules_engine:
+        if not hasattr(assistant, "rules_engine") or not assistant.rules_engine:
             raise HTTPException(status_code=503, detail="Rules engine not initialized")
-        
+
         result = assistant.rules_engine.save_rules(request.content)
-        
+
         # Reload system prompt with new rules
-        if hasattr(assistant, '_get_system_prompt'):
+        if hasattr(assistant, "_get_system_prompt"):
             assistant.system_prompt = assistant._get_system_prompt()
-        
+
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1105,11 +1130,11 @@ async def validate_rules(request: RulesSaveRequest):
     """Validate rules content"""
     if not assistant:
         raise HTTPException(status_code=503, detail="Assistant not initialized")
-    
+
     try:
-        if not hasattr(assistant, 'rules_engine') or not assistant.rules_engine:
+        if not hasattr(assistant, "rules_engine") or not assistant.rules_engine:
             raise HTTPException(status_code=503, detail="Rules engine not initialized")
-        
+
         validation = assistant.rules_engine.validate_rules(request.content)
         return validation
     except Exception as e:
@@ -1121,28 +1146,53 @@ async def preview_rules():
     """Get preview of merged prompt with rules"""
     if not assistant:
         raise HTTPException(status_code=503, detail="Assistant not initialized")
-    
+
     try:
         # Get base prompt without rules
-        if hasattr(assistant, '_get_system_prompt'):
+        if hasattr(assistant, "_get_system_prompt"):
             base_prompt = assistant._get_system_prompt()
         else:
             base_prompt = assistant.system_prompt
-        
+
         # If rules exist, show merged version
-        if hasattr(assistant, 'rules_engine') and assistant.rules_engine and assistant.rules_engine.rules_loaded:
+        if (
+            hasattr(assistant, "rules_engine")
+            and assistant.rules_engine
+            and assistant.rules_engine.rules_loaded
+        ):
             merged_prompt = assistant.rules_engine.inject_into_prompt(base_prompt)
             return {
                 "base_prompt": base_prompt,
                 "merged_prompt": merged_prompt,
-                "has_rules": True
+                "has_rules": True,
             }
         else:
             return {
                 "base_prompt": base_prompt,
                 "merged_prompt": base_prompt,
-                "has_rules": False
+                "has_rules": False,
             }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/costs")
+async def get_cost_history(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    model: Optional[str] = None,
+    limit: int = 100,
+    current_user: User = Depends(get_current_user),
+):
+    """Get historical API cost records with optional date/model filtering."""
+    if not assistant:
+        raise HTTPException(status_code=503, detail="Assistant not initialized")
+    try:
+        history = assistant.cost_tracker.get_history(
+            start_date=start_date, end_date=end_date, model=model, limit=limit
+        )
+        stats = assistant.cost_tracker.get_stats()
+        return {"history": history, "summary": stats, "success": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1152,16 +1202,17 @@ async def get_performance():
     """Get detailed performance metrics"""
     if not assistant or not assistant.performance_monitor:
         raise HTTPException(status_code=503, detail="Performance monitor not available")
-    
+
     try:
         # Use asyncio timeout to prevent hanging
         summary = await asyncio.wait_for(
-            asyncio.to_thread(assistant.performance_monitor.get_summary),
-            timeout=5.0
+            asyncio.to_thread(assistant.performance_monitor.get_summary), timeout=5.0
         )
         return summary
     except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="Performance data retrieval timed out")
+        raise HTTPException(
+            status_code=504, detail="Performance data retrieval timed out"
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1171,11 +1222,10 @@ async def get_performance_history(metric_type: Optional[str] = None, hours: int 
     """Get historical performance metrics"""
     if not assistant or not assistant.performance_monitor:
         raise HTTPException(status_code=503, detail="Performance monitor not available")
-    
+
     try:
         return assistant.performance_monitor.get_historical_stats(
-            metric_type=metric_type,
-            hours=hours
+            metric_type=metric_type, hours=hours
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1186,7 +1236,7 @@ async def get_indexing_history():
     """Get indexing performance history"""
     if not assistant or not assistant.performance_monitor:
         raise HTTPException(status_code=503, detail="Performance monitor not available")
-    
+
     try:
         return assistant.performance_monitor.get_indexing_history()
     except Exception as e:
@@ -1198,7 +1248,7 @@ async def get_completions(request: CompletionRequest):
     """Get code completions for cursor position"""
     if not completion_engine:
         raise HTTPException(status_code=503, detail="Completion engine not initialized")
-    
+
     try:
         completions = completion_engine.get_completions(
             file_path=request.file_path,
@@ -1206,132 +1256,144 @@ async def get_completions(request: CompletionRequest):
             cursor_line=request.cursor_line,
             cursor_column=request.cursor_column,
             language=request.language,
-            max_completions=10
+            max_completions=10,
         )
-        
+
         # Convert to API format
         result = []
         for comp in completions:
-            result.append({
-                "label": comp.label,
-                "kind": comp.kind,
-                "detail": comp.detail,
-                "documentation": comp.documentation,
-                "insertText": comp.insert_text or comp.text,
-                "score": comp.score
-            })
-        
-        return {
-            "completions": result,
-            "success": True
-        }
+            result.append(
+                {
+                    "label": comp.label,
+                    "kind": comp.kind,
+                    "detail": comp.detail,
+                    "documentation": comp.documentation,
+                    "insertText": comp.insert_text or comp.text,
+                    "score": comp.score,
+                }
+            )
+
+        return {"completions": result, "success": True}
     except Exception as e:
-        return {
-            "completions": [],
-            "success": False,
-            "error": str(e)
-        }
+        return {"completions": [], "success": False, "error": str(e)}
+
+
+async def _ws_authenticate(websocket: WebSocket) -> Optional[str]:
+    """
+    Authenticate a WebSocket connection and return user_id (or None for anonymous).
+    Consistent with REST endpoint behavior: validates token if provided, allows
+    anonymous connections otherwise (with IP-based rate limiting).
+    Supports token via query param: ws://host/ws/chat?token=JWT
+    """
+    await websocket.accept()
+    token = websocket.query_params.get("token")
+    if token:
+        try:
+            auth_manager = get_auth_manager()
+            payload = auth_manager.verify_token(token)
+            return payload.get("sub")
+        except Exception:
+            pass  # Invalid token — treat as anonymous, consistent with REST middleware
+    return None
 
 
 # WebSocket for real-time chat
 @app.websocket("/ws/chat")
 async def websocket_chat(websocket: WebSocket):
     """WebSocket endpoint for real-time chat"""
-    # #region agent log
-    safe_debug_log("app.py:websocket_chat", "WebSocket connection accepted", {
-        "has_assistant": assistant is not None
-    })
-    # #endregion
-    await websocket.accept()
+    user_id = await _ws_authenticate(websocket)
+    safe_debug_log(
+        "app.py:websocket_chat",
+        "WebSocket connection accepted",
+        {"has_assistant": assistant is not None, "authenticated": user_id is not None},
+    )
     active_connections.append(websocket)
-    
+
     # Generate session ID for memory management
     import uuid
+
     session_id = str(uuid.uuid4())
-    
+
     # Set session ID on assistant for memory management
     if assistant:
         assistant.set_session_id(session_id)
-    
+
     # Maintain conversation history per WebSocket connection
     conversation_history = []
-    
+
     try:
         while True:
             data = await websocket.receive_text()
             try:
                 message_data = json.loads(data)
             except json.JSONDecodeError as e:
-                await websocket.send_json({
-                    "type": "error",
-                    "message": f"Invalid JSON: {str(e)}"
-                })
-                continue
-            
-            user_message = message_data.get("message", "")
-            model_override = message_data.get("model")  # Get model selection from client
-            
-            if not assistant:
-                await websocket.send_json({
-                    "type": "error",
-                    "message": "Assistant not initialized"
-                })
-                continue
-            
-            # Send typing indicator
-            await websocket.send_json({
-                "type": "typing",
-                "status": True
-            })
-            
-            try:
-                # Process message with conversation history and optional model override
-                response = assistant.process_message(
-                    user_message, 
-                    conversation_history=conversation_history,
-                    model_override=model_override
+                await websocket.send_json(
+                    {"type": "error", "message": f"Invalid JSON: {str(e)}"}
                 )
-                
-                # Determine which model was actually used
-                used_model = model_override if model_override else 'auto'
-                
-                # Update conversation history (context manager will handle truncation/summarization)
+                continue
+
+            user_message = message_data.get("message", "")
+            model_override = message_data.get(
+                "model"
+            )  # Get model selection from client
+
+            if not assistant:
+                await websocket.send_json(
+                    {"type": "error", "message": "Assistant not initialized"}
+                )
+                continue
+
+            # Send typing indicator
+            await websocket.send_json({"type": "typing", "status": True})
+
+            try:
+                # Stream response tokens for real-time display
+                full_response = ""
+                used_model = model_override if model_override else "auto"
+
+                async for token in assistant.process_message_stream(
+                    user_message,
+                    conversation_history=conversation_history,
+                    model_override=model_override,
+                ):
+                    full_response += token
+                    await websocket.send_json({"type": "token", "token": token})
+
+                # Update conversation history
                 conversation_history.append({"role": "user", "content": user_message})
-                conversation_history.append({"role": "assistant", "content": response})
-                # Note: Context manager handles token limits and summarization automatically
-                
-                # Send response with model info
-                await websocket.send_json({
-                    "type": "message",
-                    "response": response,
-                    "model": used_model,
-                    "success": True
-                })
+                conversation_history.append({"role": "assistant", "content": full_response})
+
+                # Send final complete message with metadata
+                await websocket.send_json(
+                    {
+                        "type": "message",
+                        "response": full_response,
+                        "model": used_model,
+                        "success": True,
+                    }
+                )
             except Exception as e:
-                safe_debug_log("app.py:process_message", "Exception in process_message", {
-                    "error_type": type(e).__name__,
-                    "error_message": str(e)
-                })
-                await websocket.send_json({
-                    "type": "error",
-                    "message": str(e),
-                    "success": False
-                })
+                safe_debug_log(
+                    "app.py:process_message",
+                    "Exception in process_message",
+                    {"error_type": type(e).__name__, "error_message": str(e)},
+                )
+                await websocket.send_json(
+                    {"type": "error", "message": str(e), "success": False}
+                )
             finally:
                 # Stop typing indicator
-                await websocket.send_json({
-                    "type": "typing",
-                    "status": False
-                })
-    
+                await websocket.send_json({"type": "typing", "status": False})
+
     except WebSocketDisconnect:
         safe_debug_log("app.py:websocket_chat", "WebSocket disconnected", {})
         active_connections.remove(websocket)
     except Exception as e:
-        safe_debug_log("app.py:websocket_chat", "WebSocket exception", {
-            "error_type": type(e).__name__,
-            "error_message": str(e)
-        })
+        safe_debug_log(
+            "app.py:websocket_chat",
+            "WebSocket exception",
+            {"error_type": type(e).__name__, "error_message": str(e)},
+        )
         if websocket in active_connections:
             active_connections.remove(websocket)
         print(f"WebSocket error: {e}")
@@ -1341,34 +1403,30 @@ async def websocket_chat(websocket: WebSocket):
 @app.websocket("/ws/completion")
 async def websocket_completion(websocket: WebSocket):
     """WebSocket endpoint for real-time code completions"""
-    await websocket.accept()
-    
+    await _ws_authenticate(websocket)
+
     try:
         while True:
             data = await websocket.receive_text()
             try:
                 message_data = json.loads(data)
             except json.JSONDecodeError:
-                await websocket.send_json({
-                    "type": "error",
-                    "message": "Invalid JSON"
-                })
+                await websocket.send_json({"type": "error", "message": "Invalid JSON"})
                 continue
-            
+
             if not completion_engine:
-                await websocket.send_json({
-                    "type": "error",
-                    "message": "Completion engine not initialized"
-                })
+                await websocket.send_json(
+                    {"type": "error", "message": "Completion engine not initialized"}
+                )
                 continue
-            
+
             # Extract request data
             file_path = message_data.get("file_path", "")
             file_content = message_data.get("file_content", "")
             cursor_line = message_data.get("cursor_line", 0)
             cursor_column = message_data.get("cursor_column", 0)
             language = message_data.get("language", "python")
-            
+
             try:
                 # Get completions
                 completions = completion_engine.get_completions(
@@ -1377,33 +1435,31 @@ async def websocket_completion(websocket: WebSocket):
                     cursor_line=cursor_line,
                     cursor_column=cursor_column,
                     language=language,
-                    max_completions=10
+                    max_completions=10,
                 )
-                
+
                 # Convert to API format
                 result = []
                 for comp in completions:
-                    result.append({
-                        "label": comp.label,
-                        "kind": comp.kind,
-                        "detail": comp.detail,
-                        "documentation": comp.documentation,
-                        "insertText": comp.insert_text or comp.text,
-                        "score": comp.score
-                    })
-                
-                await websocket.send_json({
-                    "type": "completions",
-                    "completions": result,
-                    "success": True
-                })
+                    result.append(
+                        {
+                            "label": comp.label,
+                            "kind": comp.kind,
+                            "detail": comp.detail,
+                            "documentation": comp.documentation,
+                            "insertText": comp.insert_text or comp.text,
+                            "score": comp.score,
+                        }
+                    )
+
+                await websocket.send_json(
+                    {"type": "completions", "completions": result, "success": True}
+                )
             except Exception as e:
-                await websocket.send_json({
-                    "type": "error",
-                    "message": str(e),
-                    "success": False
-                })
-    
+                await websocket.send_json(
+                    {"type": "error", "message": str(e), "success": False}
+                )
+
     except WebSocketDisconnect:
         pass
     except Exception as e:
@@ -1414,85 +1470,65 @@ async def websocket_completion(websocket: WebSocket):
 @app.websocket("/ws/terminal")
 async def websocket_terminal(websocket: WebSocket):
     """WebSocket endpoint for terminal"""
-    await websocket.accept()
-    
+    await _ws_authenticate(websocket)
+
     import uuid
+
     session_id = None
     workspace_path = os.getenv("WORKSPACE_PATH", ".")
-    
+
     try:
         while True:
             data = await websocket.receive_text()
             try:
                 message = json.loads(data)
             except json.JSONDecodeError:
-                await websocket.send_json({
-                    "type": "error",
-                    "message": "Invalid JSON"
-                })
+                await websocket.send_json({"type": "error", "message": "Invalid JSON"})
                 continue
-            
+
             if message.get("type") == "init":
                 session_id = message.get("session_id", str(uuid.uuid4()))
                 workspace_path = message.get("workspace_path", workspace_path)
-                await websocket.send_json({
-                    "type": "ready",
-                    "session_id": session_id
-                })
-            
+                await websocket.send_json({"type": "ready", "session_id": session_id})
+
             elif message.get("type") == "command":
                 command = message.get("command", "").strip()
                 if not command:
                     # Empty command, just send prompt
-                    await websocket.send_json({
-                        "type": "output",
-                        "data": "\r\n$ "
-                    })
+                    await websocket.send_json({"type": "output", "data": "\r\n$ "})
                     continue
-                
+
                 # Execute command
                 try:
                     from tools.terminal import Terminal
+
                     terminal = Terminal(workspace_path=workspace_path)
-                    
+
                     # Execute and get output
                     result = terminal.execute(command, is_background=False)
-                    
+
                     # Send output (stdout and stderr combined)
                     output = ""
                     if result.get("stdout"):
                         output += result["stdout"]
                     if result.get("stderr"):
                         output += result["stderr"]
-                    
+
                     if output:
-                        await websocket.send_json({
-                            "type": "output",
-                            "data": output
-                        })
-                    
+                        await websocket.send_json({"type": "output", "data": output})
+
                     # Send exit code
-                    await websocket.send_json({
-                        "type": "exit",
-                        "code": result.get("returncode", 0)
-                    })
-                    
+                    await websocket.send_json(
+                        {"type": "exit", "code": result.get("returncode", 0)}
+                    )
+
                     # Send prompt for next command
-                    await websocket.send_json({
-                        "type": "output",
-                        "data": "\r\n$ "
-                    })
-                    
+                    await websocket.send_json({"type": "output", "data": "\r\n$ "})
+
                 except Exception as e:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": str(e)
-                    })
-                    await websocket.send_json({
-                        "type": "output",
-                        "data": "\r\n$ "
-                    })
-    
+                    await websocket.send_json({"type": "error", "message": str(e)})
+                    await websocket.send_json({"type": "output", "data": "\r\n$ "})
+
     except WebSocketDisconnect:
         pass
     except Exception as e:
@@ -1502,6 +1538,7 @@ async def websocket_terminal(websocket: WebSocket):
 if __name__ == "__main__":
     import uvicorn
     import os
+
     # Use port from environment or default to 8010
     port = int(os.getenv("PORT", 8010))
     uvicorn.run(app, host="0.0.0.0", port=port)

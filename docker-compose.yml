@@ -19,11 +19,13 @@ services:
       - RATE_LIMIT_PER_MINUTE=60
       - RATE_LIMIT_PER_HOUR=1000
       - RATE_LIMIT_PER_DAY=10000
+      - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./data:/app/data
       - ./.vector_db:/app/.vector_db
       - ./.memory.db:/app/.memory.db
       - ./.auth.db:/app/.auth.db
+      - ./.cost_history.db:/app/.cost_history.db
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8010/api/health')"]
