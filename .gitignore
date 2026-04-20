@@ -19,3 +19,6 @@ ENV/
 .cache/
 .logs/
 *.cache
+node_modules/
+build/
+dist/
