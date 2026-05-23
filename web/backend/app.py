@@ -41,6 +41,7 @@ from tools.auth import (
 )
 from tools.rate_limiter import get_rate_limiter, rate_limit
 from tools.security import get_cors_origins, sanitize_file_path, sanitize_input
+from tools.byok import UserKeys, get_user_keys, user_keys_from_ws_query
 from config import Config
 
 # Global assistant instance
@@ -489,13 +490,17 @@ async def get_status():
 
 
 @app.post("/api/chat")
-async def chat(message: ChatMessage):
-    """Process chat message (synchronous)"""
+async def chat(
+    message: ChatMessage,
+    keys: UserKeys = Depends(get_user_keys),
+):
+    """Process chat message (synchronous). BYOK keys come from request headers."""
     if not assistant:
         raise HTTPException(status_code=503, detail="Assistant not initialized")
 
+    keys.require_any()
     try:
-        response = assistant.process_message(message.message)
+        response = assistant.process_message(message.message, user_keys=keys)
         return {"response": response, "success": True}
     except Exception as e:
         return {"response": f"Error: {str(e)}", "success": False, "error": str(e)}
@@ -1302,10 +1307,22 @@ async def _ws_authenticate(websocket: WebSocket) -> Optional[str]:
 async def websocket_chat(websocket: WebSocket):
     """WebSocket endpoint for real-time chat"""
     user_id = await _ws_authenticate(websocket)
+    # Browsers can't set arbitrary headers on the WebSocket handshake, so BYOK
+    # keys arrive as query params: /ws/chat?anthropic_key=...&openai_key=...&deepseek_key=...
+    qp = websocket.query_params
+    ws_keys = user_keys_from_ws_query(
+        anthropic_key=qp.get("anthropic_key"),
+        openai_key=qp.get("openai_key"),
+        deepseek_key=qp.get("deepseek_key"),
+    )
     safe_debug_log(
         "app.py:websocket_chat",
         "WebSocket connection accepted",
-        {"has_assistant": assistant is not None, "authenticated": user_id is not None},
+        {
+            "has_assistant": assistant is not None,
+            "authenticated": user_id is not None,
+            "byok_keys_present": ws_keys.has_any(),
+        },
     )
     active_connections.append(websocket)
 
@@ -1355,6 +1372,7 @@ async def websocket_chat(websocket: WebSocket):
                     user_message,
                     conversation_history=conversation_history,
                     model_override=model_override,
+                    user_keys=ws_keys,
                 ):
                     full_response += token
                     await websocket.send_json({"type": "token", "token": token})

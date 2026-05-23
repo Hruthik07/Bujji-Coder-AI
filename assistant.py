@@ -19,7 +19,14 @@ from tools.error_parser import ErrorParser
 from tools.multi_agent import MultiAgentSystem
 from tools.logger import get_logger
 from tools.retry import retry_api_call
-from tools.llm_provider import get_provider, LLMProvider
+from tools.llm_provider import (
+    get_provider,
+    LLMProvider,
+    OpenAIProvider,
+    DeepSeekProvider,
+    AnthropicProvider,
+)
+from tools.byok import UserKeys
 from tools.task_classifier import TaskClassifier
 from tools.context_manager import ContextManager
 from tools.code_completion import CodeCompletionEngine
@@ -209,8 +216,80 @@ For NEW files that don't exist yet, use this format:
 ```
 
 Always be helpful, accurate, and follow best practices. Take immediate action on user requests."""
-    
-    def process_message(self, user_message: str, conversation_history: Optional[List[Dict]] = None, model_override: Optional[str] = None) -> str:
+
+    def _resolve_byok_providers(self, user_keys: Optional[UserKeys]):
+        """Resolve the (openai, deepseek, anthropic) triple for a request.
+
+        If `user_keys` carries any BYOK key, build fresh per-request providers
+        from it. Otherwise fall back to the server-side singletons set up in
+        __init__ (used by CLI, tests, and local dev)."""
+        if user_keys is None or not user_keys.has_any():
+            return self.openai_provider, self.deepseek_provider, self.anthropic_provider
+        openai_p = OpenAIProvider(api_key=user_keys.openai) if user_keys.openai else None
+        deepseek_p = DeepSeekProvider(api_key=user_keys.deepseek) if user_keys.deepseek else None
+        anthropic_p = AnthropicProvider(api_key=user_keys.anthropic) if user_keys.anthropic else None
+        return openai_p, deepseek_p, anthropic_p
+
+    def _select_provider(
+        self,
+        user_message: str,
+        conversation_history: Optional[List[Dict]],
+        model_override: Optional[str],
+        user_keys: Optional[UserKeys],
+    ):
+        """Pick (provider, model_name, provider_name) using BYOK keys if given,
+        else the server defaults. Raises RuntimeError if no provider is available."""
+        openai_p, deepseek_p, anthropic_p = self._resolve_byok_providers(user_keys)
+        provider = None
+        provider_name = None
+        model_name = None
+
+        if Config.USE_HYBRID_MODELS:
+            task_info = self.task_classifier.classify(user_message, conversation_history)
+            provider_name = task_info["provider"]
+            model_name = task_info["model"]
+            if provider_name == "deepseek" and deepseek_p:
+                provider = deepseek_p
+            elif provider_name == "anthropic" and anthropic_p:
+                provider = anthropic_p
+            else:
+                if deepseek_p:
+                    provider, model_name, provider_name = deepseek_p, Config.DEEPSEEK_MODEL, "deepseek"
+                elif anthropic_p:
+                    provider, model_name, provider_name = anthropic_p, Config.ANTHROPIC_MODEL, "anthropic"
+                elif openai_p:
+                    provider, model_name, provider_name = openai_p, Config.OPENAI_MODEL, "openai"
+                else:
+                    raise RuntimeError("No LLM provider available. Please configure at least one API key.")
+        else:
+            if Config.DEFAULT_PROVIDER == "deepseek" and deepseek_p:
+                provider, model_name, provider_name = deepseek_p, Config.DEEPSEEK_MODEL, "deepseek"
+            elif Config.DEFAULT_PROVIDER == "anthropic" and anthropic_p:
+                provider, model_name, provider_name = anthropic_p, Config.ANTHROPIC_MODEL, "anthropic"
+            else:
+                provider = openai_p or deepseek_p or anthropic_p
+                if not provider:
+                    raise RuntimeError("No LLM provider available. Please configure at least one API key.")
+                model_name, provider_name = Config.OPENAI_MODEL, "openai"
+
+        if model_override:
+            m = model_override.lower()
+            if "deepseek" in m and deepseek_p:
+                provider, model_name, provider_name = deepseek_p, model_override, "deepseek"
+            elif any(x in m for x in ("claude", "anthropic")) and anthropic_p:
+                provider, model_name, provider_name = anthropic_p, model_override, "anthropic"
+            elif openai_p:
+                provider, model_name, provider_name = openai_p, model_override, "openai"
+
+        return provider, model_name, provider_name
+
+    def process_message(
+        self,
+        user_message: str,
+        conversation_history: Optional[List[Dict]] = None,
+        model_override: Optional[str] = None,
+        user_keys: Optional[UserKeys] = None,
+    ) -> str:
         """
         Process a user message and generate a response with tool calls.
         Uses RAG to retrieve relevant code context.
@@ -241,66 +320,11 @@ Always be helpful, accurate, and follow best practices. Take immediate action on
             except Exception as e:
                 print(f"⚠️  RAG retrieval error: {e}")
         
-        # Classify task to determine which model to use (if hybrid enabled)
-        provider_name = None  # Initialize to avoid undefined variable
-        if Config.USE_HYBRID_MODELS:
-            task_info = self.task_classifier.classify(user_message, conversation_history)
-            provider_name = task_info["provider"]
-            model_name = task_info["model"]
-            
-            # Get appropriate provider
-            if provider_name == "deepseek" and self.deepseek_provider:
-                provider = self.deepseek_provider
-            elif provider_name == "anthropic" and self.anthropic_provider:
-                provider = self.anthropic_provider
-            else:
-                # Fallback to available provider
-                if self.deepseek_provider:
-                    provider = self.deepseek_provider
-                    model_name = Config.DEEPSEEK_MODEL
-                    provider_name = "deepseek"  # Set for logging
-                elif self.anthropic_provider:
-                    provider = self.anthropic_provider
-                    model_name = Config.ANTHROPIC_MODEL
-                    provider_name = "anthropic"  # Set for logging
-                elif self.openai_provider:
-                    provider = self.openai_provider
-                    model_name = Config.OPENAI_MODEL
-                    provider_name = "openai"  # Set for logging
-                else:
-                    raise RuntimeError("No LLM provider available. Please configure at least one API key.")
-        else:
-            # Use default provider
-            if Config.DEFAULT_PROVIDER == "deepseek" and self.deepseek_provider:
-                provider = self.deepseek_provider
-                model_name = Config.DEEPSEEK_MODEL
-                provider_name = "deepseek"
-            elif Config.DEFAULT_PROVIDER == "anthropic" and self.anthropic_provider:
-                provider = self.anthropic_provider
-                model_name = Config.ANTHROPIC_MODEL
-                provider_name = "anthropic"
-            else:
-                provider = self.openai_provider or self.deepseek_provider or self.anthropic_provider
-                if not provider:
-                    raise RuntimeError("No LLM provider available. Please configure at least one API key.")
-                model_name = Config.OPENAI_MODEL
-                provider_name = "openai"  # Default fallback
-        
-        # Honor explicit model_override from caller (e.g. WebSocket client selected a model)
-        if model_override:
-            model_override_lower = model_override.lower()
-            if "deepseek" in model_override_lower and self.deepseek_provider:
-                provider = self.deepseek_provider
-                model_name = model_override
-                provider_name = "deepseek"
-            elif any(x in model_override_lower for x in ("claude", "anthropic")) and self.anthropic_provider:
-                provider = self.anthropic_provider
-                model_name = model_override
-                provider_name = "anthropic"
-            elif self.openai_provider:
-                provider = self.openai_provider
-                model_name = model_override
-                provider_name = "openai"
+        # Pick provider + model (handles hybrid routing, default-provider, and model_override
+        # in one place; uses BYOK keys if provided, server defaults otherwise).
+        provider, model_name, provider_name = self._select_provider(
+            user_message, conversation_history, model_override, user_keys
+        )
 
         # Build base system prompt
         system_content = self.system_prompt
@@ -421,6 +445,7 @@ Always be helpful, accurate, and follow best practices. Take immediate action on
         user_message: str,
         conversation_history: Optional[List[Dict]] = None,
         model_override: Optional[str] = None,
+        user_keys: Optional[UserKeys] = None,
     ):
         """
         Streaming version of process_message.
@@ -455,63 +480,13 @@ Always be helpful, accurate, and follow best practices. Take immediate action on
             except Exception:
                 pass
 
-        provider_name = None
-        if Config.USE_HYBRID_MODELS:
-            task_info = self.task_classifier.classify(user_message, conversation_history)
-            provider_name = task_info["provider"]
-            model_name = task_info["model"]
-            if provider_name == "deepseek" and self.deepseek_provider:
-                provider = self.deepseek_provider
-            elif provider_name == "anthropic" and self.anthropic_provider:
-                provider = self.anthropic_provider
-            else:
-                if self.deepseek_provider:
-                    provider = self.deepseek_provider
-                    model_name = Config.DEEPSEEK_MODEL
-                    provider_name = "deepseek"
-                elif self.anthropic_provider:
-                    provider = self.anthropic_provider
-                    model_name = Config.ANTHROPIC_MODEL
-                    provider_name = "anthropic"
-                elif self.openai_provider:
-                    provider = self.openai_provider
-                    model_name = Config.OPENAI_MODEL
-                    provider_name = "openai"
-                else:
-                    yield "Error: No LLM provider available."
-                    return
-        else:
-            if Config.DEFAULT_PROVIDER == "deepseek" and self.deepseek_provider:
-                provider = self.deepseek_provider
-                model_name = Config.DEEPSEEK_MODEL
-                provider_name = "deepseek"
-            elif Config.DEFAULT_PROVIDER == "anthropic" and self.anthropic_provider:
-                provider = self.anthropic_provider
-                model_name = Config.ANTHROPIC_MODEL
-                provider_name = "anthropic"
-            else:
-                provider = self.openai_provider or self.deepseek_provider or self.anthropic_provider
-                if not provider:
-                    yield "Error: No LLM provider available."
-                    return
-                model_name = Config.OPENAI_MODEL
-                provider_name = "openai"
-
-        # Honor model_override
-        if model_override:
-            model_override_lower = model_override.lower()
-            if "deepseek" in model_override_lower and self.deepseek_provider:
-                provider = self.deepseek_provider
-                model_name = model_override
-                provider_name = "deepseek"
-            elif any(x in model_override_lower for x in ("claude", "anthropic")) and self.anthropic_provider:
-                provider = self.anthropic_provider
-                model_name = model_override
-                provider_name = "anthropic"
-            elif self.openai_provider:
-                provider = self.openai_provider
-                model_name = model_override
-                provider_name = "openai"
+        try:
+            provider, model_name, provider_name = self._select_provider(
+                user_message, conversation_history, model_override, user_keys
+            )
+        except RuntimeError as exc:
+            yield f"Error: {exc}"
+            return
 
         system_content = self.system_prompt
         if error_context:
