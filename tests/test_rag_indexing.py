@@ -1,6 +1,8 @@
 """Test RAG indexing directly"""
+
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent))
 
 from tools.rag_system import RAGSystem
@@ -23,23 +25,24 @@ try:
     rag = RAGSystem(workspace_path=".")
     print(f"RAG System initialized")
     print(f"Current indexed status: {rag.is_indexed}")
-    
+
     # Check for files
     files = rag._get_code_files()
     print(f"Found {len(files)} code files to index")
-    
+
     if len(files) == 0:
         print("WARNING: No code files found to index")
         sys.exit(1)
-    
+
     # Try indexing
     print("\nStarting indexing...")
     result = rag.index_codebase(force_reindex=True)
     print(f"\nIndexing result: {result}")
     print(f"Indexed status after: {rag.is_indexed}")
-    
+
 except Exception as e:
     print(f"ERROR: {e}")
     import traceback
+
     traceback.print_exc()
     sys.exit(1)

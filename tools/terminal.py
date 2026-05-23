@@ -1,6 +1,7 @@
 """
 Terminal operations module - executes shell commands
 """
+
 import subprocess
 import os
 import sys
@@ -10,19 +11,19 @@ from config import Config
 
 class Terminal:
     """Handles terminal command execution"""
-    
+
     def __init__(self, workspace_path: str = "."):
         self.workspace_path = os.path.abspath(workspace_path)
         self.shell = Config.DEFAULT_SHELL
-    
+
     def execute(self, command: str, is_background: bool = False) -> dict:
         """
         Execute a terminal command.
-        
+
         Args:
             command: Command to execute
             is_background: Whether to run in background
-            
+
         Returns:
             dict with 'success', 'stdout', 'stderr', 'returncode', 'error' keys
         """
@@ -30,7 +31,7 @@ class Terminal:
             # Change to workspace directory
             original_cwd = os.getcwd()
             os.chdir(self.workspace_path)
-            
+
             try:
                 if is_background:
                     # Run in background (non-blocking)
@@ -42,7 +43,7 @@ class Terminal:
                             stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE,
                             text=True,
-                            creationflags=subprocess.CREATE_NEW_CONSOLE
+                            creationflags=subprocess.CREATE_NEW_CONSOLE,
                         )
                     else:
                         # Unix background execution
@@ -52,9 +53,9 @@ class Terminal:
                             stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE,
                             text=True,
-                            start_new_session=True
+                            start_new_session=True,
                         )
-                    
+
                     return {
                         "success": True,
                         "stdout": "",
@@ -62,7 +63,7 @@ class Terminal:
                         "returncode": 0,
                         "pid": process.pid,
                         "error": None,
-                        "background": True
+                        "background": True,
                     }
                 else:
                     # Run in foreground (blocking)
@@ -71,28 +72,28 @@ class Terminal:
                         shell=True,
                         capture_output=True,
                         text=True,
-                        timeout=300  # 5 minute timeout
+                        timeout=300,  # 5 minute timeout
                     )
-                    
+
                     return {
                         "success": result.returncode == 0,
                         "stdout": result.stdout,
                         "stderr": result.stderr,
                         "returncode": result.returncode,
                         "error": None,
-                        "background": False
+                        "background": False,
                     }
-            
+
             finally:
                 os.chdir(original_cwd)
-        
+
         except subprocess.TimeoutExpired:
             return {
                 "success": False,
                 "stdout": "",
                 "stderr": "",
                 "returncode": -1,
-                "error": "Command timed out after 5 minutes"
+                "error": "Command timed out after 5 minutes",
             }
         except Exception as e:
             return {
@@ -100,6 +101,5 @@ class Terminal:
                 "stdout": "",
                 "stderr": "",
                 "returncode": -1,
-                "error": str(e)
+                "error": str(e),
             }
-

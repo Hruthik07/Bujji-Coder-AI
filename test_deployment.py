@@ -2,6 +2,7 @@
 Deployment Testing Script
 Tests all production deployment features
 """
+
 import requests
 import json
 import time
@@ -10,6 +11,7 @@ from typing import Dict, Any
 
 BASE_URL = "http://localhost:8010"
 FRONTEND_URL = "http://localhost:80"
+
 
 def test_health_check() -> bool:
     """Test health check endpoint"""
@@ -26,6 +28,7 @@ def test_health_check() -> bool:
     except Exception as e:
         print(f"  ❌ Health check error: {e}")
         return False
+
 
 def test_status_endpoint() -> bool:
     """Test status endpoint"""
@@ -45,22 +48,21 @@ def test_status_endpoint() -> bool:
         print(f"  ❌ Status endpoint error: {e}")
         return False
 
+
 def test_authentication() -> Dict[str, Any]:
     """Test authentication endpoints"""
     print("\n[TEST] Authentication...")
     results = {"register": False, "login": False, "me": False}
-    
+
     # Test registration
     try:
         register_data = {
             "username": f"testuser_{int(time.time())}",
             "email": f"test_{int(time.time())}@example.com",
-            "password": "TestPassword123!"
+            "password": "TestPassword123!",
         }
         response = requests.post(
-            f"{BASE_URL}/api/auth/register",
-            json=register_data,
-            timeout=10
+            f"{BASE_URL}/api/auth/register", json=register_data, timeout=10
         )
         if response.status_code == 200:
             data = response.json()
@@ -78,17 +80,12 @@ def test_authentication() -> Dict[str, Any]:
     except Exception as e:
         print(f"  ❌ Registration error: {e}")
         return results
-    
+
     # Test login
     try:
-        login_data = {
-            "username": results["username"],
-            "password": results["password"]
-        }
+        login_data = {"username": results["username"], "password": results["password"]}
         response = requests.post(
-            f"{BASE_URL}/api/auth/login",
-            json=login_data,
-            timeout=10
+            f"{BASE_URL}/api/auth/login", json=login_data, timeout=10
         )
         if response.status_code == 200:
             data = response.json()
@@ -102,15 +99,11 @@ def test_authentication() -> Dict[str, Any]:
     except Exception as e:
         print(f"  ❌ Login error: {e}")
         return results
-    
+
     # Test /api/auth/me
     try:
         headers = {"Authorization": f"Bearer {results['tokens']['access']}"}
-        response = requests.get(
-            f"{BASE_URL}/api/auth/me",
-            headers=headers,
-            timeout=10
-        )
+        response = requests.get(f"{BASE_URL}/api/auth/me", headers=headers, timeout=10)
         if response.status_code == 200:
             data = response.json()
             print(f"  ✅ Get current user successful")
@@ -121,8 +114,9 @@ def test_authentication() -> Dict[str, Any]:
             print(f"  ❌ Get current user failed: {response.status_code}")
     except Exception as e:
         print(f"  ❌ Get current user error: {e}")
-    
+
     return results
+
 
 def test_rate_limiting() -> bool:
     """Test rate limiting"""
@@ -136,7 +130,7 @@ def test_rate_limiting() -> bool:
             if "X-RateLimit-Remaining-Minute" in response.headers:
                 remaining = response.headers["X-RateLimit-Remaining-Minute"]
                 print(f"  Request {i+1}: Remaining: {remaining}")
-        
+
         # Check if rate limit headers are present
         if "X-RateLimit-Remaining-Minute" in responses[0].headers:
             print(f"  ✅ Rate limiting headers present")
@@ -148,6 +142,7 @@ def test_rate_limiting() -> bool:
         print(f"  ❌ Rate limiting test error: {e}")
         return False
 
+
 def test_cors() -> bool:
     """Test CORS configuration"""
     print("\n[TEST] CORS Configuration...")
@@ -156,13 +151,15 @@ def test_cors() -> bool:
             f"{BASE_URL}/api/status",
             headers={
                 "Origin": "http://localhost:3001",
-                "Access-Control-Request-Method": "GET"
+                "Access-Control-Request-Method": "GET",
             },
-            timeout=5
+            timeout=5,
         )
         if "Access-Control-Allow-Origin" in response.headers:
             print(f"  ✅ CORS headers present")
-            print(f"     - Allow-Origin: {response.headers.get('Access-Control-Allow-Origin')}")
+            print(
+                f"     - Allow-Origin: {response.headers.get('Access-Control-Allow-Origin')}"
+            )
             return True
         else:
             print(f"  ⚠️  CORS headers not found")
@@ -170,6 +167,7 @@ def test_cors() -> bool:
     except Exception as e:
         print(f"  ❌ CORS test error: {e}")
         return False
+
 
 def test_frontend() -> bool:
     """Test frontend accessibility"""
@@ -187,44 +185,47 @@ def test_frontend() -> bool:
         print(f"     (This is OK if frontend is not running)")
         return False
 
+
 def main():
     """Run all deployment tests"""
     print("=" * 50)
     print("Bujji-Coder-AI Deployment Testing")
     print("=" * 50)
-    
+
     results = {
         "health_check": False,
         "status": False,
         "authentication": False,
         "rate_limiting": False,
         "cors": False,
-        "frontend": False
+        "frontend": False,
     }
-    
+
     # Test health check
     results["health_check"] = test_health_check()
     if not results["health_check"]:
         print("\n❌ Health check failed. Is the backend running?")
         print("   Start with: docker-compose up -d")
         return False
-    
+
     # Test status endpoint
     results["status"] = test_status_endpoint()
-    
+
     # Test authentication
     auth_results = test_authentication()
-    results["authentication"] = auth_results.get("login", False) and auth_results.get("me", False)
-    
+    results["authentication"] = auth_results.get("login", False) and auth_results.get(
+        "me", False
+    )
+
     # Test rate limiting
     results["rate_limiting"] = test_rate_limiting()
-    
+
     # Test CORS
     results["cors"] = test_cors()
-    
+
     # Test frontend (optional)
     results["frontend"] = test_frontend()
-    
+
     # Summary
     print("\n" + "=" * 50)
     print("Test Results Summary")
@@ -232,17 +233,18 @@ def main():
     for test_name, passed in results.items():
         status = "✅ PASS" if passed else "❌ FAIL"
         print(f"{test_name.replace('_', ' ').title():.<30} {status}")
-    
+
     total = len(results)
     passed = sum(1 for v in results.values() if v)
     print(f"\nTotal: {passed}/{total} tests passed")
-    
+
     if passed == total:
         print("\n🎉 All tests passed! Deployment is working correctly.")
         return True
     else:
         print(f"\n⚠️  {total - passed} test(s) failed. Check the output above.")
         return False
+
 
 if __name__ == "__main__":
     success = main()

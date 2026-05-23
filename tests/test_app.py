@@ -2,18 +2,20 @@
 Quick application test script
 Tests backend API endpoints and basic functionality
 """
+
 import requests
 import json
 import sys
 
 BASE_URL = "http://localhost:8001"
 
+
 def test_backend_status():
     """Test if backend is running and get status"""
     print("=" * 60)
     print("Testing Backend Status")
     print("=" * 60)
-    
+
     try:
         response = requests.get(f"{BASE_URL}/api/status", timeout=5)
         if response.status_code == 200:
@@ -25,7 +27,7 @@ def test_backend_status():
             print(f"   Model: {data.get('model', 'N/A')}")
             print(f"   Hybrid Mode: {data.get('hybrid_mode', False)}")
             print(f"   Available Providers:")
-            providers = data.get('available_providers', {})
+            providers = data.get("available_providers", {})
             for provider, available in providers.items():
                 status = "[OK]" if available else "[X]"
                 print(f"     {status} {provider.capitalize()}")
@@ -41,17 +43,18 @@ def test_backend_status():
         print(f"[ERROR] Error checking backend: {e}")
         return False
 
+
 def test_file_listing():
     """Test file listing endpoint"""
     print("\n" + "=" * 60)
     print("Testing File Listing")
     print("=" * 60)
-    
+
     try:
         response = requests.get(f"{BASE_URL}/api/files?directory=.", timeout=10)
         if response.status_code == 200:
             data = response.json()
-            items = data.get('items', [])
+            items = data.get("items", [])
             print(f"[OK] File listing works! Found {len(items)} items")
             if items:
                 print("   Sample files:")
@@ -65,29 +68,27 @@ def test_file_listing():
         print(f"[ERROR] Error testing file listing: {e}")
         return False
 
+
 def test_validation_endpoint():
     """Test validation endpoint"""
     print("\n" + "=" * 60)
     print("Testing Validation Endpoint")
     print("=" * 60)
-    
+
     test_diff = """--- a/test.py
 +++ b/test.py
 @@ -1,1 +1,1 @@
 -print('hello')
 +print('hello world')
 """
-    
+
     try:
         response = requests.post(
             f"{BASE_URL}/api/diff/validate",
-            json={
-                "diff_text": test_diff,
-                "file_path": "test.py"
-            },
-            timeout=10
+            json={"diff_text": test_diff, "file_path": "test.py"},
+            timeout=10,
         )
-        
+
         if response.status_code == 200:
             data = response.json()
             print("[OK] Validation endpoint works!")
@@ -100,19 +101,20 @@ def test_validation_endpoint():
         print(f"[ERROR] Error testing validation: {e}")
         return False
 
+
 def test_stats_endpoint():
     """Test stats endpoint"""
     print("\n" + "=" * 60)
     print("Testing Stats Endpoint")
     print("=" * 60)
-    
+
     try:
         response = requests.get(f"{BASE_URL}/api/stats", timeout=10)
         if response.status_code == 200:
             data = response.json()
             print("[OK] Stats endpoint works!")
-            if 'cost' in data:
-                cost = data['cost']
+            if "cost" in data:
+                cost = data["cost"]
                 print(f"   Total Requests: {cost.get('total_requests', 0)}")
                 print(f"   Estimated Cost: ${cost.get('estimated_cost', 0):.4f}")
             return True
@@ -123,22 +125,23 @@ def test_stats_endpoint():
         print(f"[ERROR] Error testing stats: {e}")
         return False
 
+
 def main():
     print("\n" + "=" * 60)
     print("AI Coding Assistant - Application Test")
     print("=" * 60 + "\n")
-    
+
     # Test backend status
     if not test_backend_status():
         print("\n[ERROR] Backend is not running. Please start it first.")
         print("   Command: cd web/backend && python app.py")
         sys.exit(1)
-    
+
     # Test other endpoints
     test_file_listing()
     test_validation_endpoint()
     test_stats_endpoint()
-    
+
     print("\n" + "=" * 60)
     print("Test Summary")
     print("=" * 60)
@@ -152,6 +155,7 @@ def main():
     print("   - Terminal panel")
     print("   - Git integration")
     print("=" * 60 + "\n")
+
 
 if __name__ == "__main__":
     main()

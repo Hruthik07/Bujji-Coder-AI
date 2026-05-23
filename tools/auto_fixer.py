@@ -1,6 +1,7 @@
 """
 Auto Fixer - Automatically fixes detected bugs using LLM
 """
+
 from typing import List, Dict, Optional, Any
 from pathlib import Path
 from .bug_detector import Bug, BugDetector
@@ -13,14 +14,16 @@ from config import Config
 
 class AutoFixer:
     """Automatically fixes bugs using LLM-generated diffs"""
-    
-    def __init__(self, workspace_path: str = ".", bug_detector: Optional[BugDetector] = None):
+
+    def __init__(
+        self, workspace_path: str = ".", bug_detector: Optional[BugDetector] = None
+    ):
         self.workspace_path = Path(workspace_path).resolve()
         self.bug_detector = bug_detector or BugDetector(workspace_path)
         self.diff_editor = DiffEditor(workspace_path)
         self.file_ops = FileOperations(workspace_path)
         self.diff_extractor = DiffExtractor()
-        
+
         # Use Claude for fixing (better reasoning)
         try:
             if Config.ANTHROPIC_API_KEY:
@@ -31,35 +34,39 @@ class AutoFixer:
         except Exception as e:
             print(f"⚠️  LLM provider initialization failed: {e}")
             self.llm_provider = None
-    
+
     def fix_bug(self, bug: Bug) -> Dict[str, Any]:
         """
         Fix a single bug
-        
+
         Args:
             bug: Bug object to fix
-            
+
         Returns:
             Dict with success status, diff, and result
         """
         if not self.llm_provider:
             return {"success": False, "error": "LLM provider not available"}
-        
+
         # Read file
         file_result = self.file_ops.read_file(bug.file_path)
-        
+
         if not file_result.get("exists"):
             return {"success": False, "error": f"File not found: {bug.file_path}"}
-        
+
         file_content = file_result.get("content", "")
-        
+
         # Generate fix using LLM
         fix_prompt = self._build_fix_prompt(bug, file_content)
-        
+
         try:
             # Determine model
-            model = Config.ANTHROPIC_MODEL if hasattr(Config, 'ANTHROPIC_MODEL') and Config.ANTHROPIC_API_KEY else Config.OPENAI_MODEL
-            
+            model = (
+                Config.ANTHROPIC_MODEL
+                if hasattr(Config, "ANTHROPIC_MODEL") and Config.ANTHROPIC_API_KEY
+                else Config.OPENAI_MODEL
+            )
+
             response = self.llm_provider.chat_completion(
                 messages=[
                     {
@@ -78,28 +85,28 @@ Rules:
    ```
 3. Be precise - only change what's necessary
 4. Preserve code style and formatting
-5. If the bug can't be fixed automatically, explain why"""
+5. If the bug can't be fixed automatically, explain why""",
                     },
-                    {
-                        "role": "user",
-                        "content": fix_prompt
-                    }
+                    {"role": "user", "content": fix_prompt},
                 ],
                 model=model,
                 temperature=0.3,  # Lower temperature for more consistent fixes
-                max_tokens=2000
+                max_tokens=2000,
             )
-            
+
             # Extract diff from response
             diffs = self.diff_extractor.extract_diffs(response.content)
-            
+
             if not diffs:
                 # Try to find diff in response
                 import re
-                diff_match = re.search(r'```(?:diff)?\n(.*?)\n```', response.content, re.DOTALL)
+
+                diff_match = re.search(
+                    r"```(?:diff)?\n(.*?)\n```", response.content, re.DOTALL
+                )
                 if diff_match:
                     diffs = [diff_match.group(1)]
-            
+
             if diffs:
                 # Apply fix
                 try:
@@ -110,79 +117,74 @@ Rules:
                             "success": result.get("success", False),
                             "diff": diffs[0],
                             "result": result,
-                            "response": response.content
+                            "response": response.content,
                         }
                     else:
                         return {
                             "success": False,
                             "error": "Could not parse diff",
-                            "response": response.content
+                            "response": response.content,
                         }
                 except Exception as e:
                     return {
                         "success": False,
                         "error": f"Failed to apply diff: {str(e)}",
                         "diff": diffs[0] if diffs else None,
-                        "response": response.content
+                        "response": response.content,
                     }
             else:
                 return {
                     "success": False,
                     "error": "No diff found in LLM response",
-                    "response": response.content
+                    "response": response.content,
                 }
-        
+
         except Exception as e:
-            return {
-                "success": False,
-                "error": f"LLM call failed: {str(e)}"
-            }
-    
-    def fix_bugs(self, bugs: List[Bug], max_fixes: Optional[int] = None) -> Dict[str, Any]:
+            return {"success": False, "error": f"LLM call failed: {str(e)}"}
+
+    def fix_bugs(
+        self, bugs: List[Bug], max_fixes: Optional[int] = None
+    ) -> Dict[str, Any]:
         """
         Fix multiple bugs
-        
+
         Args:
             bugs: List of Bug objects
             max_fixes: Maximum number of bugs to fix (None = all)
-            
+
         Returns:
             Dict with results for each bug
         """
-        results = {
-            "total": len(bugs),
-            "fixed": [],
-            "failed": [],
-            "skipped": []
-        }
-        
+        results = {"total": len(bugs), "fixed": [], "failed": [], "skipped": []}
+
         bugs_to_fix = bugs[:max_fixes] if max_fixes else bugs
-        
+
         for bug in bugs_to_fix:
             # Skip critical syntax errors - they need manual fixing
             if bug.bug_type == "syntax" and bug.severity == "critical":
-                results["skipped"].append({
-                    "bug": bug,
-                    "reason": "Critical syntax errors require manual fixing"
-                })
+                results["skipped"].append(
+                    {
+                        "bug": bug,
+                        "reason": "Critical syntax errors require manual fixing",
+                    }
+                )
                 continue
-            
+
             fix_result = self.fix_bug(bug)
-            
+
             if fix_result.get("success"):
-                results["fixed"].append({
-                    "bug": bug,
-                    "fix": fix_result
-                })
+                results["fixed"].append({"bug": bug, "fix": fix_result})
             else:
-                results["failed"].append({
-                    "bug": bug,
-                    "error": fix_result.get("error"),
-                    "response": fix_result.get("response")
-                })
-        
+                results["failed"].append(
+                    {
+                        "bug": bug,
+                        "error": fix_result.get("error"),
+                        "response": fix_result.get("response"),
+                    }
+                )
+
         return results
-    
+
     def _build_fix_prompt(self, bug: Bug, file_content: str) -> str:
         """Build prompt for LLM to fix bug"""
         prompt = f"""Fix this bug in the code:
@@ -210,9 +212,3 @@ Use this format:
 +new code
 ```"""
         return prompt
-
-
-
-
-
-
