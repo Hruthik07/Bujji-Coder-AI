@@ -8,109 +8,148 @@ function ChatPanel({ onDiffGenerated, onFileRequest }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [ws, setWs] = useState(null);
+  // 'connecting' | 'open' | 'reconnecting' | 'closed'
+  const [connectionState, setConnectionState] = useState('connecting');
+  const wsRef = useRef(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [selectedModel, setSelectedModel] = useState('auto');
   const { wsParams } = useByokKeys();
+  // Hold the latest wsParams in a ref so the WS connect() closure reads
+  // the current value without needing wsParams in the effect deps (we
+  // intentionally don't reconnect on key change — see explanation in
+  // the effect below).
+  const wsParamsRef = useRef(wsParams);
+  useEffect(() => {
+    wsParamsRef.current = wsParams;
+  }, [wsParams]);
 
   useEffect(() => {
-    // Connect to WebSocket — attach JWT token (for auth-aware rate limiting)
-    // and BYOK keys as query params (browsers can't set headers on a WS
-    // handshake). BYOK keys are intentionally snapshotted at connect-time;
-    // changes via the Settings modal apply on page reload (the modal says so).
-    const token = localStorage.getItem('access_token');
-    const params = new URLSearchParams(wsParams);
-    if (token) params.set('token', token);
-    const wsBase = `${WS_URL}/ws/chat`;
-    const queryString = params.toString();
-    const wsUrl = queryString ? `${wsBase}?${queryString}` : wsBase;
-    const websocket = new WebSocket(wsUrl);
-    
-    // Streaming token accumulator — holds the in-progress assistant message id
-    let streamingMsgId = null;
+    // WebSocket with exponential-backoff reconnect.
+    // Network flakes, server restarts (Railway redeploys), and laptop
+    // suspends all close the socket; without reconnect the chat would
+    // silently freeze. Backoff: 1s, 2s, 4s, 8s, 16s, capped at 30s,
+    // with +/- 20% jitter to avoid thundering herd on coordinated
+    // server restarts.
+    let intentionalClose = false;
+    let attempt = 0;
+    let reconnectTimer = null;
 
-    websocket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
+    // Returns a fresh onmessage handler. Each connection gets its own
+    // streamingMsgId closure so a reconnect mid-stream doesn't try to
+    // append tokens to a stale message id.
+    const makeMessageHandler = () => {
+      let streamingMsgId = null;
+      return (event) => {
+        const data = JSON.parse(event.data);
 
-      if (data.type === 'typing') {
-        setIsTyping(data.status);
-      } else if (data.type === 'token') {
-        // Progressive token streaming — append to in-progress message
-        const token = data.token || '';
-        if (streamingMsgId === null) {
-          // Create a new streaming message placeholder
-          const id = Date.now();
-          streamingMsgId = id;
-          setIsTyping(false);
-          setMessages(prev => [...prev, {
-            id,
-            role: 'assistant',
-            content: token,
-            timestamp: new Date(),
-            model: 'streaming',
-            streaming: true,
-          }]);
-        } else {
-          // Append token to the existing streaming message
-          setMessages(prev => prev.map(msg =>
-            msg.id === streamingMsgId
-              ? { ...msg, content: msg.content + token }
-              : msg
-          ));
-        }
-      } else if (data.type === 'message') {
-        // Final message — replace streaming placeholder with complete response
-        if (streamingMsgId !== null) {
-          setMessages(prev => prev.map(msg =>
-            msg.id === streamingMsgId
-              ? { ...msg, content: data.response, model: data.model || 'auto', streaming: false }
-              : msg
-          ));
-          streamingMsgId = null;
-        } else {
-          // No streaming was active (fallback)
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: data.response,
-            timestamp: new Date(),
-            model: data.model || 'auto'
-          }]);
-        }
-        setIsTyping(false);
-
-        // Check if response contains diff
-        if (data.response && data.response.includes('```diff')) {
-          const diffMatch = data.response.match(/```diff\n([\s\S]*?)```/);
-          if (diffMatch) {
-            onDiffGenerated(diffMatch[1]);
+        if (data.type === 'typing') {
+          setIsTyping(data.status);
+        } else if (data.type === 'token') {
+          const token = data.token || '';
+          if (streamingMsgId === null) {
+            const id = Date.now();
+            streamingMsgId = id;
+            setIsTyping(false);
+            setMessages(prev => [...prev, {
+              id,
+              role: 'assistant',
+              content: token,
+              timestamp: new Date(),
+              model: 'streaming',
+              streaming: true,
+            }]);
+          } else {
+            setMessages(prev => prev.map(msg =>
+              msg.id === streamingMsgId
+                ? { ...msg, content: msg.content + token }
+                : msg
+            ));
           }
+        } else if (data.type === 'message') {
+          if (streamingMsgId !== null) {
+            setMessages(prev => prev.map(msg =>
+              msg.id === streamingMsgId
+                ? { ...msg, content: data.response, model: data.model || 'auto', streaming: false }
+                : msg
+            ));
+            streamingMsgId = null;
+          } else {
+            setMessages(prev => [...prev, {
+              role: 'assistant',
+              content: data.response,
+              timestamp: new Date(),
+              model: data.model || 'auto'
+            }]);
+          }
+          setIsTyping(false);
+
+          if (data.response && data.response.includes('```diff')) {
+            const diffMatch = data.response.match(/```diff\n([\s\S]*?)```/);
+            if (diffMatch) {
+              onDiffGenerated(diffMatch[1]);
+            }
+          }
+        } else if (data.type === 'error') {
+          streamingMsgId = null;
+          setMessages(prev => [...prev, {
+            role: 'error',
+            content: data.message,
+            timestamp: new Date()
+          }]);
+          setIsTyping(false);
         }
-      } else if (data.type === 'error') {
-        streamingMsgId = null;
-        setMessages(prev => [...prev, {
-          role: 'error',
-          content: data.message,
-          timestamp: new Date()
-        }]);
-        setIsTyping(false);
-      }
+      };
     };
-    
-    websocket.onerror = (error) => {
-      console.error('WebSocket error:', error);
+
+    const connect = () => {
+      // Attach JWT token (for auth-aware rate limiting) and BYOK keys
+      // as query params (browsers can't set headers on a WS handshake).
+      // BYOK keys are intentionally snapshotted at connect-time; key
+      // updates via Settings apply on page reload (the modal says so).
+      const token = localStorage.getItem('access_token');
+      // Read keys snapshot at this connect call (initial connect or reconnect).
+      const params = new URLSearchParams(wsParamsRef.current);
+      if (token) params.set('token', token);
+      const wsBase = `${WS_URL}/ws/chat`;
+      const queryString = params.toString();
+      const wsUrl = queryString ? `${wsBase}?${queryString}` : wsBase;
+
+      setConnectionState(attempt === 0 ? 'connecting' : 'reconnecting');
+      const websocket = new WebSocket(wsUrl);
+      wsRef.current = websocket;
+
+      websocket.onopen = () => {
+        attempt = 0;
+        setConnectionState('open');
+      };
+      websocket.onmessage = makeMessageHandler();
+      websocket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
+      websocket.onclose = () => {
+        if (intentionalClose) {
+          setConnectionState('closed');
+          return;
+        }
+        const baseDelay = Math.min(30000, 1000 * Math.pow(2, attempt));
+        const jittered = Math.round(baseDelay * (0.8 + Math.random() * 0.4));
+        attempt += 1;
+        setConnectionState('reconnecting');
+        reconnectTimer = setTimeout(connect, jittered);
+      };
     };
-    
-    websocket.onclose = () => {
-      console.log('WebSocket closed');
-    };
-    
-    setWs(websocket);
-    
+
+    connect();
+
     return () => {
-      websocket.close();
+      intentionalClose = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
+        wsRef.current.close();
+      }
     };
   }, [onDiffGenerated]);
 
@@ -119,21 +158,20 @@ function ChatPanel({ onDiffGenerated, onFileRequest }) {
   }, [messages]);
 
   const handleSend = async () => {
-    if (!input.trim() || !ws || ws.readyState !== WebSocket.OPEN) return;
-    
+    const sock = wsRef.current;
+    if (!input.trim() || !sock || sock.readyState !== WebSocket.OPEN) return;
+
     const userMessage = input.trim();
     setInput('');
-    
-    // Add user message with model info
+
     setMessages(prev => [...prev, {
       role: 'user',
       content: userMessage,
       timestamp: new Date(),
       model: selectedModel !== 'auto' ? selectedModel : undefined
     }]);
-    
-    // Send via WebSocket with model selection
-    ws.send(JSON.stringify({ 
+
+    sock.send(JSON.stringify({
       message: userMessage,
       model: selectedModel !== 'auto' ? selectedModel : undefined
     }));
@@ -215,6 +253,13 @@ function ChatPanel({ onDiffGenerated, onFileRequest }) {
     <div className="chat-panel">
       <div className="chat-header">
         <h3>💬 Chat with Assistant</h3>
+        <div className={`chat-connection chat-connection--${connectionState}`}>
+          <span className="chat-connection-dot" />
+          {connectionState === 'open' && 'Connected'}
+          {connectionState === 'connecting' && 'Connecting…'}
+          {connectionState === 'reconnecting' && 'Reconnecting…'}
+          {connectionState === 'closed' && 'Disconnected'}
+        </div>
         <div className="chat-header-actions">
           <button
             onClick={() => setShowSearch(!showSearch)}
