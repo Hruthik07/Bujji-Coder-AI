@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import './ChatPanel.css';
 import ModelSelector from './ModelSelector';
+import { useByokKeys } from '../hooks/useByokKeys';
 
 function ChatPanel({ onDiffGenerated, onFileRequest }) {
   const [messages, setMessages] = useState([]);
@@ -12,12 +13,19 @@ function ChatPanel({ onDiffGenerated, onFileRequest }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [selectedModel, setSelectedModel] = useState('auto');
+  const { wsParams } = useByokKeys();
 
   useEffect(() => {
-    // Connect to WebSocket — attach token if available (for auth-aware rate limiting)
+    // Connect to WebSocket — attach JWT token (for auth-aware rate limiting)
+    // and BYOK keys as query params (browsers can't set headers on a WS
+    // handshake). BYOK keys are intentionally snapshotted at connect-time;
+    // changes via the Settings modal apply on page reload (the modal says so).
     const token = localStorage.getItem('access_token');
+    const params = new URLSearchParams(wsParams);
+    if (token) params.set('token', token);
     const wsBase = `ws://${window.location.hostname}:8010/ws/chat`;
-    const wsUrl = token ? `${wsBase}?token=${encodeURIComponent(token)}` : wsBase;
+    const queryString = params.toString();
+    const wsUrl = queryString ? `${wsBase}?${queryString}` : wsBase;
     const websocket = new WebSocket(wsUrl);
     
     // Streaming token accumulator — holds the in-progress assistant message id

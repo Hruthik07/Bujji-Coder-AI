@@ -11,6 +11,7 @@ import GitPanel from './components/GitPanel';
 import RulesEditor from './components/RulesEditor';
 import Terminal from './components/Terminal';
 import StatusBar from './components/StatusBar';
+import SettingsModal from './components/SettingsModal';
 
 function App() {
   const [selectedFile, setSelectedFile] = useState(null);
@@ -27,6 +28,7 @@ function App() {
   const [showGit, setShowGit] = useState(false);
   const [showRules, setShowRules] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [scrollToLine, setScrollToLine] = useState(null);
 
   useEffect(() => {
@@ -200,6 +202,13 @@ function App() {
           >
             💻 Terminal
           </button>
+          <button
+            onClick={() => setShowSettings(true)}
+            className="btn-secondary"
+            title="Configure API keys (BYOK)"
+          >
+            🔑 Keys
+          </button>
           <button onClick={loadStatus} className="btn-secondary">
             Refresh Status
           </button>
@@ -297,6 +306,10 @@ function App() {
         <RulesEditor
           onClose={() => setShowRules(false)}
         />
+      )}
+
+      {showSettings && (
+        <SettingsModal onClose={() => setShowSettings(false)} />
       )}
 
       {showTerminal && (
