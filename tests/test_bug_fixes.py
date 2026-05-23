@@ -19,7 +19,10 @@ def test_error_context_handling():
     print("TEST 1: Error Context Handling")
     print("=" * 60)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
+    # ignore_cleanup_errors: ChromaDB's SQLite handle stays open across the
+    # block exit on Windows, where unlinking an in-use file raises
+    # PermissionError. Linux/macOS unlink works regardless of open handles.
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         assistant = CodingAssistant(workspace_path=tmpdir)
 
         # Test cases
@@ -70,7 +73,10 @@ def test_model_name_validation():
     print("TEST 2: Model Name Validation")
     print("=" * 60)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
+    # ignore_cleanup_errors: ChromaDB's SQLite handle stays open across the
+    # block exit on Windows, where unlinking an in-use file raises
+    # PermissionError. Linux/macOS unlink works regardless of open handles.
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         # Mock providers
         mock_provider = Mock()
 

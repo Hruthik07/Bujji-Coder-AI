@@ -31,7 +31,8 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pytest pytest-cov pytest-asyncio requests
+        # pytest + httpx (FastAPI TestClient backend) + asyncio runner
+        pip install pytest pytest-cov pytest-asyncio httpx requests
 
     - name: Run linting
       run: |
@@ -45,9 +46,10 @@ jobs:
         isort --check-only . --skip-glob="node_modules/**" --skip-glob="web/frontend/**" || true
 
     - name: Run tests
+      # Hard-gated: a failing test now blocks the merge. The previous
+      # '|| true' + continue-on-error pair meant zero protection.
       run: |
-        python -m pytest tests/ -v --cov=. --cov-report=xml --cov-report=html || true
-      continue-on-error: true
+        python -m pytest tests/ -v --cov=. --cov-report=xml --cov-report=html
 
     - name: Upload coverage reports
       uses: codecov/codecov-action@v3
@@ -81,7 +83,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install requests pytest
+        pip install requests pytest pytest-asyncio httpx
 
     - name: Start backend server
       run: |
@@ -92,9 +94,13 @@ jobs:
         JWT_SECRET_KEY: test-secret-key-for-ci
         ENVIRONMENT: test
 
-    - name: Test API endpoints
+    - name: Test API endpoints (integration)
+      # tests/test_deployment.py lives in tests/ (root duplicate was removed
+      # in c61347d5). Keep continue-on-error here because this integration
+      # test hits a real backend with mocked LLM keys; flakiness is expected
+      # but worth running for signal.
       run: |
-        python test_deployment.py || true
+        python -m pytest tests/test_deployment.py -v
       continue-on-error: true
 
   test-frontend:
