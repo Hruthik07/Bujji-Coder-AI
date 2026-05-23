@@ -132,9 +132,14 @@ class RAGSystem:
         # Initialize cache for embeddings and analysis
         self.cache = Cache(cache_dir=str(self.workspace_path / ".cache"))
 
-        # Initialize vector database
+        # Initialize vector database.
+        # Config.VECTOR_DB_PATH may be relative (./.vector_db in dev) OR
+        # absolute (/data/vector_db on a Railway volume mount). pathlib's `/`
+        # discards the workspace prefix when the right-hand side is absolute,
+        # which is exactly what we want. parents=True covers the case where
+        # the parent directory (e.g. /data) hasn't been created yet.
         self.db_path = self.workspace_path / Config.VECTOR_DB_PATH
-        self.db_path.mkdir(exist_ok=True)
+        self.db_path.mkdir(parents=True, exist_ok=True)
 
         if not CHROMADB_AVAILABLE:
             raise ImportError(
@@ -144,6 +149,7 @@ class RAGSystem:
         self.chroma_client = chromadb.PersistentClient(
             path=str(self.db_path), settings=Settings(anonymized_telemetry=False)
         )
+        print(f"[INFO] RAG vector DB persisted at: {self.db_path}")
 
         # Get or create collection
         self.collection = self.chroma_client.get_or_create_collection(

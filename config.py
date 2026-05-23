@@ -64,6 +64,10 @@ class Config:
     EMBEDDING_MODEL = os.getenv(
         "EMBEDDING_MODEL", "text-embedding-3-small"
     )  # Cost-effective embedding model
+    # ChromaDB persistent storage path. Relative in dev (`.vector_db` next to
+    # the workspace), but in production this MUST point at a mounted volume
+    # — otherwise every container restart wipes the embedded index. On Railway,
+    # mount a volume at `/data/vector_db` and set VECTOR_DB_PATH=/data/vector_db.
     VECTOR_DB_PATH = os.getenv("VECTOR_DB_PATH", ".vector_db")
     CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "500"))  # Characters per chunk
     CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "50"))
