@@ -116,9 +116,52 @@ class Config:
                 "RAG indexing and retrieval will fail. "
                 "Set EMBEDDING_PROVIDER=sentence_transformers for a free local alternative."
             )
-        if not any([cls.OPENAI_API_KEY, cls.ANTHROPIC_API_KEY, cls.DEEPSEEK_API_KEY]):
+        # In production, BYOK means missing server-side LLM keys is the *expected*
+        # state — visitors bring their own. Only warn outside of production.
+        is_prod = os.getenv("ENVIRONMENT", "development").lower() == "production"
+        if not is_prod and not any(
+            [cls.OPENAI_API_KEY, cls.ANTHROPIC_API_KEY, cls.DEEPSEEK_API_KEY]
+        ):
             warnings.append(
                 "No LLM API keys configured. "
                 "Set at least one of: OPENAI_API_KEY, ANTHROPIC_API_KEY, DEEPSEEK_API_KEY."
             )
         return warnings
+
+    # Placeholder JWT secrets that have appeared in this repo's history; refusing
+    # to serve production traffic with any of them prevents shipping the default.
+    _JWT_PLACEHOLDER_SECRETS = frozenset(
+        {
+            "",
+            "your-secret-key-change-in-production",
+            "your-super-secret-jwt-key-change-this-in-production",
+            "change-me-in-production",
+            "test-secret-key-for-ci",
+        }
+    )
+
+    @classmethod
+    def validate_for_production(cls) -> list:
+        """Return a list of FATAL config errors. Empty list outside production.
+
+        Called once at server startup; if non-empty in prod, refuse to serve."""
+        if os.getenv("ENVIRONMENT", "development").lower() != "production":
+            return []
+        errors = []
+
+        if not os.getenv("CORS_ORIGINS", "").strip():
+            errors.append(
+                "CORS_ORIGINS must be set in production (e.g. "
+                "https://your-frontend.vercel.app,https://your-domain.com). "
+                "Refusing to fall back to allow-all."
+            )
+
+        jwt_secret = os.getenv("JWT_SECRET_KEY", "")
+        if jwt_secret in cls._JWT_PLACEHOLDER_SECRETS:
+            errors.append(
+                "JWT_SECRET_KEY is missing or set to a known placeholder. "
+                "Generate one with: "
+                "python -c \"import secrets; print(secrets.token_urlsafe(48))\""
+            )
+
+        return errors

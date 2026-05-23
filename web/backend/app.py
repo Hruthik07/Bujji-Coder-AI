@@ -136,7 +136,19 @@ async def lifespan(app: FastAPI):
         print(f"[WARN] Git service initialization failed: {e}")
         git_service = None
 
-    # Startup validation warnings
+    # Production-mode fatal config validation (CORS_ORIGINS, JWT_SECRET_KEY).
+    # If any of these fail, refuse to serve traffic — prefer crashloop over
+    # silently shipping a default secret or wide-open CORS.
+    fatal = Config.validate_for_production()
+    if fatal:
+        for err in fatal:
+            print(f"[FATAL] {err}")
+        raise RuntimeError(
+            "Production config validation failed; refusing to start. "
+            "Fix the errors above and redeploy."
+        )
+
+    # Non-fatal startup warnings (RAG/embedding key hints, etc.)
     for warning in Config.validate_on_startup():
         print(f"[WARN] {warning}")
 
@@ -155,18 +167,23 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware - use environment-based origins
+# CORS middleware - use environment-based origins.
+# In production, validate_for_production() (run in lifespan) will already have
+# refused to start if CORS_ORIGINS is unset, so the wide-open fallback here
+# is unreachable when ENVIRONMENT=production.
 cors_origins = get_cors_origins()
-if not cors_origins and os.getenv("ENVIRONMENT", "development") == "production":
-    # Production must have explicit CORS origins
-    print("[WARN] CORS_ORIGINS not set in production! Defaulting to empty list.")
-    cors_origins = []
+_is_prod = os.getenv("ENVIRONMENT", "development").lower() == "production"
+if not cors_origins:
+    if _is_prod:
+        raise RuntimeError(
+            "CORS_ORIGINS must be set in production; refusing wide-open fallback."
+        )
+    cors_origins = ["*"]
+    print("[INFO] CORS_ORIGINS not set; using allow-all for development.")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=(
-        cors_origins if cors_origins else ["*"]
-    ),  # Fallback to * for development
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
