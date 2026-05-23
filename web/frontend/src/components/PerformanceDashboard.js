@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './PerformanceDashboard.css';
+import { API_URL } from '../config';
 
 const PerformanceDashboard = ({ onClose }) => {
   const [stats, setStats] = useState(null);
@@ -26,20 +27,20 @@ const PerformanceDashboard = ({ onClose }) => {
       setLoading(true);
       
       // Fetch current stats
-      const statsResponse = await fetch('http://localhost:8010/api/performance');
+      const statsResponse = await fetch(`${API_URL}/api/performance`);
       if (!statsResponse.ok) throw new Error('Failed to fetch performance stats');
       const statsData = await statsResponse.json();
       setStats(statsData);
 
       // Fetch response time history
-      const historyResponse = await fetch('http://localhost:8010/api/performance/history?metric_type=response&hours=1');
+      const historyResponse = await fetch(`${API_URL}/api/performance/history?metric_type=response&hours=1`);
       if (historyResponse.ok) {
         const historyData = await historyResponse.json();
         setHistory(historyData);
       }
 
       // Fetch indexing history
-      const indexingResponse = await fetch('http://localhost:8010/api/performance/indexing');
+      const indexingResponse = await fetch(`${API_URL}/api/performance/indexing`);
       if (indexingResponse.ok) {
         const indexingData = await indexingResponse.json();
         setIndexingHistory(indexingData);

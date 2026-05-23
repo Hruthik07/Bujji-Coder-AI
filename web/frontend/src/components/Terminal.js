@@ -3,6 +3,7 @@ import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
 import './Terminal.css';
+import { WS_URL } from '../config';
 
 // Note: xterm packages are deprecated but still functional
 // Consider migrating to @xterm/xterm and @xterm/addon-fit in future
@@ -62,7 +63,7 @@ function Terminal({ workspacePath = '.' }) {
     }
 
     // Connect to WebSocket
-    const ws = new WebSocket(`ws://${window.location.hostname}:8010/ws/terminal`);
+    const ws = new WebSocket(`${WS_URL}/ws/terminal`);
     wsRef.current = ws;
 
     ws.onopen = () => {

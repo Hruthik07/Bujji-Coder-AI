@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import './ChatPanel.css';
 import ModelSelector from './ModelSelector';
 import { useByokKeys } from '../hooks/useByokKeys';
+import { WS_URL } from '../config';
 
 function ChatPanel({ onDiffGenerated, onFileRequest }) {
   const [messages, setMessages] = useState([]);
@@ -23,7 +24,7 @@ function ChatPanel({ onDiffGenerated, onFileRequest }) {
     const token = localStorage.getItem('access_token');
     const params = new URLSearchParams(wsParams);
     if (token) params.set('token', token);
-    const wsBase = `ws://${window.location.hostname}:8010/ws/chat`;
+    const wsBase = `${WS_URL}/ws/chat`;
     const queryString = params.toString();
     const wsUrl = queryString ? `${wsBase}?${queryString}` : wsBase;
     const websocket = new WebSocket(wsUrl);
