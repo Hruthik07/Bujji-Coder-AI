@@ -40,7 +40,13 @@ from tools.auth import (
     JWT_EXPIRATION_HOURS,
 )
 from tools.rate_limiter import get_rate_limiter, rate_limit
-from tools.security import get_cors_origins, sanitize_file_path, sanitize_input
+from tools.security import (
+    get_cors_origins,
+    sanitize_file_path,
+    sanitize_input,
+    require_writes_enabled,
+    writes_enabled,
+)
 from tools.byok import UserKeys, get_user_keys, user_keys_from_ws_query
 from config import Config
 
@@ -552,8 +558,11 @@ async def read_file(request: FileReadRequest):
 
 
 @app.post("/api/files/write")
-async def write_file(request: FileWriteRequest):
-    """Write a file"""
+async def write_file(
+    request: FileWriteRequest,
+    _: None = Depends(require_writes_enabled),
+):
+    """Write a file. Gated by ENABLE_WRITE_OPERATIONS."""
     if not assistant:
         raise HTTPException(status_code=503, detail="Assistant not initialized")
 
@@ -565,8 +574,11 @@ async def write_file(request: FileWriteRequest):
 
 
 @app.post("/api/files/edit")
-async def edit_file(request: FileEditRequest):
-    """Edit a file"""
+async def edit_file(
+    request: FileEditRequest,
+    _: None = Depends(require_writes_enabled),
+):
+    """Edit a file. Gated by ENABLE_WRITE_OPERATIONS."""
     if not assistant:
         raise HTTPException(status_code=503, detail="Assistant not initialized")
 
@@ -596,8 +608,11 @@ async def preview_diff(request: DiffRequest):
 
 
 @app.post("/api/diff/apply")
-async def apply_diff(request: DiffRequest):
-    """Apply a diff"""
+async def apply_diff(
+    request: DiffRequest,
+    _: None = Depends(require_writes_enabled),
+):
+    """Apply a diff to the workspace. Gated by ENABLE_WRITE_OPERATIONS."""
     if not assistant:
         raise HTTPException(status_code=503, detail="Assistant not initialized")
 
@@ -1504,7 +1519,21 @@ async def websocket_completion(websocket: WebSocket):
 # WebSocket for terminal
 @app.websocket("/ws/terminal")
 async def websocket_terminal(websocket: WebSocket):
-    """WebSocket endpoint for terminal"""
+    """WebSocket endpoint for terminal. Gated by ENABLE_WRITE_OPERATIONS:
+    a public BYOK deploy must never accept arbitrary shell command input."""
+    if not writes_enabled():
+        await websocket.accept()
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": (
+                    "Terminal is disabled on this deployment. "
+                    "Run Bujji locally for shell access."
+                ),
+            }
+        )
+        await websocket.close(code=1008)  # 1008 = policy violation
+        return
     await _ws_authenticate(websocket)
 
     import uuid

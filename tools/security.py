@@ -219,6 +219,40 @@ def is_safe_filename(filename: str) -> bool:
     return True
 
 
+def writes_enabled() -> bool:
+    """Whether write / shell-exec endpoints are permitted in this environment.
+
+    Public BYOK deploys must NOT let arbitrary visitors mutate the host
+    filesystem, run git mutations, or open shell sessions on the box.
+    This flag is the single switch the deployer flips.
+
+    Resolution order:
+      1. ENABLE_WRITE_OPERATIONS=true|false (explicit override, any env)
+      2. Default false when ENVIRONMENT=production
+      3. Default true otherwise (local dev, CI)
+    """
+    flag = os.getenv("ENABLE_WRITE_OPERATIONS", "").strip().lower()
+    if flag in {"true", "1", "yes", "on"}:
+        return True
+    if flag in {"false", "0", "no", "off"}:
+        return False
+    return os.getenv("ENVIRONMENT", "development").lower() != "production"
+
+
+def require_writes_enabled() -> None:
+    """FastAPI dependency: 403 if writes are disabled. Gate mutating endpoints."""
+    from fastapi import HTTPException, status
+
+    if not writes_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Write / shell-exec operations are disabled on this deployment. "
+                "Run Bujji locally for full editing access."
+            ),
+        )
+
+
 def get_cors_origins() -> List[str]:
     """Get CORS allowed origins from environment"""
     origins_env = os.getenv("CORS_ORIGINS", "")
