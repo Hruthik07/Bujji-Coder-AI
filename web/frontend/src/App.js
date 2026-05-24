@@ -12,6 +12,7 @@ import RulesEditor from './components/RulesEditor';
 import Terminal from './components/Terminal';
 import StatusBar from './components/StatusBar';
 import SettingsModal from './components/SettingsModal';
+import GitHubAuthButton from './components/GitHubAuthButton';
 
 function App() {
   const [selectedFile, setSelectedFile] = useState(null);
@@ -167,6 +168,7 @@ function App() {
       <div className="app-header">
         <h1>🤖 AI Coding Assistant</h1>
         <div className="header-actions">
+          <GitHubAuthButton />
           <button
             onClick={() => setShowComposer(true)}
             className="btn-composer"

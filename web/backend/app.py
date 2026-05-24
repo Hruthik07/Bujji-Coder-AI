@@ -444,6 +444,13 @@ async def refresh_token_endpoint(refresh_token: str):
 GITHUB_STATE_COOKIE = "bujji_gh_state"
 
 
+@app.get("/api/auth/github/status")
+async def github_oauth_status():
+    """Frontend hits this on mount to decide whether to show the sign-in
+    button. Returns {"enabled": bool} — no secrets leaked."""
+    return {"enabled": Config.github_oauth_enabled()}
+
+
 @app.get("/api/auth/github/login")
 async def github_oauth_login():
     """Step 1 of the OAuth flow: redirect the browser to GitHub.
