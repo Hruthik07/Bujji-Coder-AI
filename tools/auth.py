@@ -50,6 +50,15 @@ class User(BaseModel):
     role: str = "user"  # admin, user, guest
     created_at: str
     api_keys: Optional[Dict[str, str]] = None  # Provider -> API key mapping
+    # GitHub OAuth — null for password-account users, set for users who
+    # signed in via /api/auth/github/callback.
+    github_id: Optional[str] = None
+
+
+# Sentinel stored in `hashed_password` for OAuth-only users. bcrypt.checkpw
+# never matches a real password against this string, so it is a safe
+# placeholder for the NOT NULL column.
+OAUTH_NO_PASSWORD_SENTINEL = "oauth:github:no-password"
 
 
 class UserCreate(BaseModel):
@@ -104,6 +113,20 @@ class AuthManager:
                 updated_at TEXT
             )
         """)
+
+        # Add github_id column for OAuth sign-ins. SQLite can't include
+        # UNIQUE on ALTER TABLE ADD COLUMN, so the uniqueness comes from
+        # the partial UNIQUE INDEX below (which is also more correct —
+        # NULL github_ids should not collide with each other).
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN github_id TEXT")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+        cursor.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_github_id "
+            "ON users(github_id) WHERE github_id IS NOT NULL"
+        )
 
         # Create refresh tokens table
         cursor.execute("""
@@ -212,6 +235,7 @@ class AuthManager:
                 role=row["role"],
                 created_at=row["created_at"],
                 api_keys=json.loads(row["api_keys"]) if row["api_keys"] else None,
+                github_id=row["github_id"] if "github_id" in row.keys() else None,
             )
         return None
 
@@ -233,6 +257,7 @@ class AuthManager:
                 role=row["role"],
                 created_at=row["created_at"],
                 api_keys=json.loads(row["api_keys"]) if row["api_keys"] else None,
+                github_id=row["github_id"] if "github_id" in row.keys() else None,
             )
         return None
 
@@ -254,6 +279,7 @@ class AuthManager:
                 role=row["role"],
                 created_at=row["created_at"],
                 api_keys=json.loads(row["api_keys"]) if row["api_keys"] else None,
+                github_id=row["github_id"] if "github_id" in row.keys() else None,
             )
         return None
 
@@ -360,6 +386,95 @@ class AuthManager:
             )
 
         return self.create_access_token(user)
+
+    def get_user_by_github_id(self, github_id: str) -> Optional[User]:
+        """Look up a user by their GitHub numeric id."""
+        conn = sqlite3.connect(str(self.db_path))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE github_id = ?", (github_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            return User(
+                id=row["id"],
+                username=row["username"],
+                email=row["email"],
+                hashed_password=row["hashed_password"],
+                role=row["role"],
+                created_at=row["created_at"],
+                api_keys=json.loads(row["api_keys"]) if row["api_keys"] else None,
+                github_id=row["github_id"],
+            )
+        return None
+
+    def upsert_github_user(
+        self,
+        github_id: str,
+        username: str,
+        email: str,
+    ) -> User:
+        """Resolve a GitHub OAuth profile to a Bujji user, creating one if
+        we've never seen them before, or linking an existing email-only
+        account to its GitHub identity on first sign-in.
+
+        Resolution order:
+          1. Existing row with this github_id -> return as-is.
+          2. Existing row with this email -> stamp github_id onto it.
+          3. Otherwise -> create a new OAuth-only row (no password).
+        """
+        from datetime import datetime
+        import uuid
+
+        # (1) already linked
+        existing = self.get_user_by_github_id(github_id)
+        if existing:
+            return existing
+
+        # (2) email match — link this email account to its GitHub id
+        by_email = self.get_user_by_email(email)
+        if by_email:
+            conn = sqlite3.connect(str(self.db_path))
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE users SET github_id = ?, updated_at = ? WHERE id = ?",
+                (github_id, datetime.utcnow().isoformat(), by_email.id),
+            )
+            conn.commit()
+            conn.close()
+            return self.get_user_by_id(by_email.id)
+
+        # (3) new OAuth user. Username may collide with an existing
+        # password account; in that case suffix with a fragment of the
+        # github_id to keep the UNIQUE constraint happy.
+        candidate_username = username
+        if self.get_user_by_username(candidate_username):
+            candidate_username = f"{username}-gh{github_id[:6]}"
+
+        user_id = str(uuid.uuid4())
+        created_at = datetime.utcnow().isoformat()
+        conn = sqlite3.connect(str(self.db_path))
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO users
+                (id, username, email, hashed_password, role, created_at, github_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                candidate_username,
+                email,
+                OAUTH_NO_PASSWORD_SENTINEL,
+                "user",
+                created_at,
+                github_id,
+            ),
+        )
+        conn.commit()
+        conn.close()
+        return self.get_user_by_id(user_id)
 
     def update_user_api_keys(self, user_id: str, api_keys: Dict[str, str]):
         """Update user's API keys"""

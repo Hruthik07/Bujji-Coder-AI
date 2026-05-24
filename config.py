@@ -110,6 +110,22 @@ class Config:
     # Cost Tracker Persistence
     COST_DB_PATH = os.getenv("COST_DB_PATH", ".cost_history.db")
 
+    # GitHub OAuth — leave blank to disable the sign-in flow entirely.
+    # Setup: docs/GITHUB_OAUTH_SETUP.md
+    GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID", "")
+    GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "")
+    GITHUB_OAUTH_REDIRECT_URI = os.getenv(
+        "GITHUB_OAUTH_REDIRECT_URI",
+        "http://localhost:8010/api/auth/github/callback",
+    )
+    # Frontend URL the OAuth callback redirects to after issuing the JWT.
+    FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3001")
+
+    @classmethod
+    def github_oauth_enabled(cls) -> bool:
+        """Whether the deployer has configured the GitHub OAuth client."""
+        return bool(cls.GITHUB_CLIENT_ID and cls.GITHUB_CLIENT_SECRET)
+
     @classmethod
     def validate_on_startup(cls) -> list:
         """Return a list of warning strings for missing or misconfigured keys."""

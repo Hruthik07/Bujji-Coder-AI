@@ -48,6 +48,12 @@ from tools.security import (
     writes_enabled,
 )
 from tools.byok import UserKeys, get_user_keys, user_keys_from_ws_query
+from tools.github_oauth import (
+    build_authorize_url,
+    exchange_code_for_token,
+    fetch_profile,
+    generate_state,
+)
 from config import Config
 
 # Global assistant instance
@@ -432,6 +438,113 @@ async def refresh_token_endpoint(refresh_token: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=401, detail=str(e))
+
+
+# --- GitHub OAuth ---------------------------------------------------------
+GITHUB_STATE_COOKIE = "bujji_gh_state"
+
+
+@app.get("/api/auth/github/login")
+async def github_oauth_login():
+    """Step 1 of the OAuth flow: redirect the browser to GitHub.
+
+    Disabled until GITHUB_CLIENT_ID/SECRET are configured (returns 503)."""
+    if not Config.github_oauth_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="GitHub OAuth is not configured on this deployment.",
+        )
+    state = generate_state()
+    url = build_authorize_url(
+        client_id=Config.GITHUB_CLIENT_ID,
+        redirect_uri=Config.GITHUB_OAUTH_REDIRECT_URI,
+        state=state,
+    )
+    from fastapi.responses import RedirectResponse
+
+    resp = RedirectResponse(url=url, status_code=302)
+    # State cookie protects against CSRF: an attacker can't make a
+    # victim's browser arrive at /callback with the attacker's state
+    # because the cookie won't be set in their session.
+    resp.set_cookie(
+        key=GITHUB_STATE_COOKIE,
+        value=state,
+        httponly=True,
+        secure=os.getenv("ENVIRONMENT", "development").lower() == "production",
+        samesite="lax",
+        max_age=600,  # 10 minutes
+    )
+    return resp
+
+
+@app.get("/api/auth/github/callback")
+async def github_oauth_callback(
+    request: Request,
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+):
+    """Step 4 of the OAuth flow: verify state, exchange code for token,
+    upsert user, redirect to the frontend with a Bujji JWT in the URL
+    fragment (fragments never reach server logs)."""
+    if not Config.github_oauth_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="GitHub OAuth is not configured on this deployment.",
+        )
+
+    from fastapi.responses import RedirectResponse
+
+    # User denied / GitHub returned an error
+    if error:
+        return RedirectResponse(
+            url=f"{Config.FRONTEND_URL}/?auth_error={error}", status_code=302
+        )
+
+    if not code or not state:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing 'code' or 'state' in GitHub callback.",
+        )
+
+    expected_state = request.cookies.get(GITHUB_STATE_COOKIE)
+    if not expected_state or expected_state != state:
+        raise HTTPException(
+            status_code=400,
+            detail="OAuth state mismatch — possible CSRF or expired session.",
+        )
+
+    import requests as _requests
+
+    try:
+        access_token = exchange_code_for_token(
+            code=code,
+            client_id=Config.GITHUB_CLIENT_ID,
+            client_secret=Config.GITHUB_CLIENT_SECRET,
+            redirect_uri=Config.GITHUB_OAUTH_REDIRECT_URI,
+            http_post=_requests.post,
+        )
+        profile = fetch_profile(access_token=access_token, http_get=_requests.get)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=f"GitHub OAuth failure: {exc}")
+
+    auth_manager = get_auth_manager()
+    user = auth_manager.upsert_github_user(
+        github_id=profile.github_id,
+        username=profile.username,
+        email=profile.email,
+    )
+    bujji_jwt = auth_manager.create_access_token(user)
+
+    # JWT in URL fragment — fragments are kept in browser history but
+    # never sent in HTTP requests, so they don't end up in nginx /
+    # Railway access logs.
+    resp = RedirectResponse(
+        url=f"{Config.FRONTEND_URL}/#access_token={bujji_jwt}",
+        status_code=302,
+    )
+    resp.delete_cookie(GITHUB_STATE_COOKIE)
+    return resp
 
 
 @app.get("/api/auth/me")
