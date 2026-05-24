@@ -11,7 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.9", "3.10", "3.11"]
+        # Python 3.9 reached EOL in Oct 2025. tests/test_bug_fixes.py
+        # uses tempfile.TemporaryDirectory(ignore_cleanup_errors=...)
+        # which is a 3.10+ kwarg. 3.12 added for forward coverage.
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
     - uses: actions/checkout@v4
