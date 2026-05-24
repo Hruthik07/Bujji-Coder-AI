@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
+import Landing from './components/Landing';
 import { API_URL } from './config';
 
 // In dev, CRA's package.json `proxy` forwards /api/* to localhost:8010.
@@ -23,9 +24,17 @@ if (API_URL && typeof window !== 'undefined') {
   };
 }
 
+// Route at the entrypoint: root path "/" gets the marketing landing
+// page, every other path (e.g. /app) drops into the editor/chat shell.
+// Lifting this above <App /> avoids breaking the rules-of-hooks (an
+// early-return inside App would shift hook order if path changed).
+const path = typeof window !== 'undefined' ? window.location.pathname : '';
+const isLandingRoute = path === '/' || path === '';
+const RootComponent = isLandingRoute ? Landing : App;
+
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
-    <App />
+    <RootComponent />
   </React.StrictMode>
 );

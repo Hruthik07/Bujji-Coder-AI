@@ -166,7 +166,15 @@ function App() {
   return (
     <div className="app">
       <div className="app-header">
-        <h1>🤖 AI Coding Assistant</h1>
+        <h1>
+          <a
+            href="/"
+            style={{ color: 'inherit', textDecoration: 'none' }}
+            title="Back to landing page"
+          >
+            🤖 AI Coding Assistant
+          </a>
+        </h1>
         <div className="header-actions">
           <GitHubAuthButton />
           <button
