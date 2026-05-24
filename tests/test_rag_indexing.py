@@ -1,25 +1,33 @@
-"""Test RAG indexing directly"""
+"""Manual smoke script for RAG indexing.
+
+Note: this is structured as a top-level procedural script, not pytest
+functions. It is intentionally skipped at the module level (rather
+than failing) when prerequisites aren't met, so CI can collect the
+tests/ directory cleanly without an OPENAI_API_KEY.
+"""
 
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 from tools.rag_system import RAGSystem
 from config import Config
 
+if not Config.ENABLE_RAG:
+    pytest.skip("RAG is disabled in config (ENABLE_RAG=false).", allow_module_level=True)
+if not Config.OPENAI_API_KEY:
+    pytest.skip(
+        "Requires OPENAI_API_KEY in the environment for live embeddings.",
+        allow_module_level=True,
+    )
+
 print("Testing RAG Indexing...")
 print(f"Workspace: {Path('.').resolve()}")
 print(f"RAG Enabled: {Config.ENABLE_RAG}")
 print(f"OpenAI API Key: {'SET' if Config.OPENAI_API_KEY else 'NOT SET'}")
-
-if not Config.ENABLE_RAG:
-    print("ERROR: RAG is disabled in config")
-    sys.exit(1)
-
-if not Config.OPENAI_API_KEY:
-    print("ERROR: OpenAI API key not set")
-    sys.exit(1)
 
 try:
     rag = RAGSystem(workspace_path=".")
