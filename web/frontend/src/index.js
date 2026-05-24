@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
 import Landing from './components/Landing';
+import ErrorBoundary from './components/ErrorBoundary';
 import { API_URL } from './config';
 
 // In dev, CRA's package.json `proxy` forwards /api/* to localhost:8010.
@@ -35,6 +36,8 @@ const RootComponent = isLandingRoute ? Landing : App;
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
-    <RootComponent />
+    <ErrorBoundary>
+      <RootComponent />
+    </ErrorBoundary>
   </React.StrictMode>
 );
