@@ -21,7 +21,7 @@ requests>=2.31.0  # GitHub OAuth callback + integration tests
 # Production security dependencies
 pyjwt>=2.8.0
 bcrypt>=4.0.1
-python-jose[cryptography]>=3.3.0
+python-jose[cryptography]>=3.5.0
 slowapi>=0.1.9
 redis>=5.0.0
 email-validator>=2.0.0
