@@ -1,5 +1,5 @@
 # Multi-stage build for Bujji-Coder-AI Frontend
-FROM node:18-alpine as builder
+FROM node:25-alpine as builder
 
 # Install build dependencies required for native modules
 RUN apk add --no-cache python3 make g++ git libc6-compat
