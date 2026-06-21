@@ -20,7 +20,7 @@ psutil>=5.9.0
 requests>=2.31.0  # GitHub OAuth callback + integration tests
 # Production security dependencies
 pyjwt>=2.8.0
-bcrypt>=4.0.1
+bcrypt>=5.0.0
 python-jose[cryptography]>=3.3.0
 slowapi>=0.1.9
 redis>=5.0.0
