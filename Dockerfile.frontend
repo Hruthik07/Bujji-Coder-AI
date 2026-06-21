@@ -13,24 +13,14 @@ COPY web/frontend/package*.json ./
 # Install dependencies
 RUN npm install
 
-# Verify react-scripts is installed and make it executable
-RUN test -f node_modules/.bin/react-scripts && \
-    chmod +x node_modules/.bin/react-scripts && \
-    chmod +x node_modules/.bin/* && \
-    echo "✓ react-scripts installed and made executable" || \
-    (echo "✗ react-scripts NOT found" && ls -la node_modules/.bin/ | head -10 && exit 1)
+# Give execute permission to react-scripts binary
+RUN chmod +x ./node_modules/.bin/react-scripts
 
 # Copy source code
 COPY web/frontend/ ./
 
-# Build the application
-# Try multiple methods to ensure it works
-# Method 1: Use npm run build (handles PATH automatically)
-RUN npm run build || \
-    # Method 2: Use node to execute the script directly
-    node node_modules/react-scripts/bin/react-scripts.js build || \
-    # Method 3: Use explicit path with sh wrapper
-    sh -c './node_modules/.bin/react-scripts build'
+# Build the project
+RUN ./node_modules/.bin/react-scripts build
 
 # Production stage with Nginx
 FROM nginx:alpine
